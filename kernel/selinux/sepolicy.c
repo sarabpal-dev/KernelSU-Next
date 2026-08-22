@@ -86,12 +86,33 @@ static bool add_typeattribute(struct policydb *db, const char *type,
     ksu_hash_for_each(htab->htable, htab->size, cur)
 #endif
 
-// symtab_search is introduced on 5.9.0:
-// https://elixir.bootlin.com/linux/v5.9-rc1/source/security/selinux/ss/symtab.h
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 9, 0)
-#define symtab_search(s, name) hashtab_search((s)->table, name)
-#define symtab_insert(s, name, datum) hashtab_insert((s)->table, name, datum)
+#include "ksu_kallsyms.h"
+
+#ifdef symtab_search
+#undef symtab_search
 #endif
+#define symtab_search (ksu_syms.symtab_search)
+
+#ifdef symtab_insert
+#undef symtab_insert
+#endif
+#define symtab_insert (ksu_syms.symtab_insert)
+
+#define __hashtab_insert (ksu_syms.__hashtab_insert)
+#define policydb_filenametr_search (ksu_syms.policydb_filenametr_search)
+#define ebitmap_get_bit (ksu_syms.ebitmap_get_bit)
+#define ebitmap_set_bit (ksu_syms.ebitmap_set_bit)
+#define avtab_search_node (ksu_syms.avtab_search_node)
+#define avtab_search_node_next (ksu_syms.avtab_search_node_next)
+#define avtab_insert_nonunique (ksu_syms.avtab_insert_nonunique)
+#define selinux_status_update_policyload (ksu_syms.selinux_status_update_policyload)
+#define selnl_notify_policyload (ksu_syms.selnl_notify_policyload)
+#define policydb_destroy (ksu_syms.policydb_destroy)
+#define policydb_read (ksu_syms.policydb_read)
+#define policydb_write (ksu_syms.policydb_write)
+#define avtab_alloc (ksu_syms.avtab_alloc)
+#define avtab_destroy (ksu_syms.avtab_destroy)
+#define sidtab_destroy (ksu_syms.sidtab_destroy)
 
 #define avtab_for_each(avtab, cur)                                             \
     ksu_hash_for_each(avtab.htable, avtab.nslot, cur);
@@ -560,6 +581,44 @@ static const struct hashtab_key_params filenametr_key_params = {
 };
 #endif
 
+static int ksu_hashtab_insert(struct hashtab *h, void *key, void *datum,
+                              struct hashtab_key_params key_params)
+{
+    u32 hvalue;
+    struct hashtab_node *prev, *cur, *newnode;
+
+    if (!h || !h->size)
+        return -EINVAL;
+
+    hvalue = key_params.hash(key) & (h->size - 1);
+    prev = NULL;
+    cur = h->htable[hvalue];
+    while (cur) {
+        int r = key_params.cmp(key, cur->key);
+        if (r == 0)
+            return -EEXIST;
+        if (r < 0)
+            break;
+        prev = cur;
+        cur = cur->next;
+    }
+
+    newnode = kzalloc(sizeof(*newnode), GFP_KERNEL);
+    if (!newnode)
+        return -ENOMEM;
+    newnode->key = key;
+    newnode->datum = datum;
+    if (prev) {
+        newnode->next = prev->next;
+        prev->next = newnode;
+    } else {
+        newnode->next = h->htable[hvalue];
+        h->htable[hvalue] = newnode;
+    }
+    h->nel++;
+    return 0;
+}
+
 static bool add_filename_trans(struct policydb *db, const char *s,
                                const char *t, const char *c, const char *d,
                                const char *o)
@@ -630,7 +689,7 @@ static bool add_filename_trans(struct policydb *db, const char *s,
         }
         trans->next = last;
         trans->otype = def->value;
-        rc = hashtab_insert(&db->filename_trans, new_key, trans, filenametr_key_params);
+        rc = ksu_hashtab_insert(&db->filename_trans, new_key, trans, filenametr_key_params);
         if (rc) {
             pr_err("add_filename_trans: hashtab_insert failed: %d\n", rc);
             goto free_name;
@@ -957,6 +1016,9 @@ struct selinux_policy *ksu_dup_sepolicy(struct selinux_policy *old_pol)
     struct selinux_policy *new_pol;
     void *data;
     struct policy_file fp;
+
+    if (!old_pol)
+        return ERR_PTR(-EINVAL);
 
     len = old_pol->policydb.len;
     data = vmalloc(len);

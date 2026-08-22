@@ -294,3 +294,33 @@ pub fn set_ksu_no_new_privs() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+/// Reset kernel boot state flags (ksu_boot_completed, ksu_module_mounted)
+pub fn reset_boot_state() -> std::io::Result<()> {
+    ksuctl(
+        ksu_uapi::KSU_IOCTL_RESET_BOOT_STATE,
+        std::ptr::null_mut::<u8>(),
+    )?;
+    Ok(())
+}
+
+/// Force-umount a mountpoint in kernel space
+pub fn force_umount(path: &str, flags: u32) -> anyhow::Result<i32> {
+    let c_path = std::ffi::CString::new(path)?;
+    let mut cmd = ksu_uapi::ksu_force_umount_cmd {
+        arg: c_path.as_ptr() as u64,
+        flags,
+        result: 0,
+    };
+    ksuctl(ksu_uapi::KSU_IOCTL_FORCE_UMOUNT, &raw mut cmd)?;
+    Ok(cmd.result)
+}
+
+/// Disarm reboot guard for one reboot cycle
+pub fn real_reboot_once() -> std::io::Result<()> {
+    ksuctl(
+        ksu_uapi::KSU_IOCTL_REAL_REBOOT_ONCE,
+        std::ptr::null_mut::<u8>(),
+    )?;
+    Ok(())
+}

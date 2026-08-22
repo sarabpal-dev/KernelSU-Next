@@ -20,16 +20,7 @@
 #include "ksu.h"
 #include "infra/su_mount_ns.h"
 #include "util.h"
-
-extern int path_mount(const char *dev_name, struct path *path,
-                      const char *type_page, unsigned long flags,
-                      void *data_page);
-
-#if defined(__aarch64__)
-extern long __arm64_sys_setns(const struct pt_regs *regs);
-#elif defined(__x86_64__)
-extern long __x64_sys_setns(const struct pt_regs *regs);
-#endif
+#include "ksu_kallsyms.h"
 
 static long ksu_sys_setns(int fd, int flags)
 {
@@ -40,12 +31,30 @@ static long ksu_sys_setns(int fd, int flags)
     PT_REGS_PARM2(&regs) = flags;
 
 #if defined(__aarch64__)
-    return __arm64_sys_setns(&regs);
+    return ksu_syms.__arm64_sys_setns ? ksu_syms.__arm64_sys_setns(&regs) : -ENOSYS;
 #elif defined(__x86_64__)
-    return __x64_sys_setns(&regs);
+    return -ENOSYS;
 #else
 #error "Unsupported arch"
 #endif
+}
+
+static inline void ksu_get_fs_pwd(struct fs_struct *fs, struct path *pwd)
+{
+    spin_lock(&fs->lock);
+    *pwd = fs->pwd;
+    if (ksu_syms.path_get)
+        ksu_syms.path_get(pwd);
+    spin_unlock(&fs->lock);
+}
+
+static inline void ksu_get_fs_root(struct fs_struct *fs, struct path *root)
+{
+    spin_lock(&fs->lock);
+    *root = fs->root;
+    if (ksu_syms.path_get)
+        ksu_syms.path_get(root);
+    spin_unlock(&fs->lock);
 }
 
 // global mode , need CAP_SYS_ADMIN and CAP_SYS_CHROOT to perform setns
@@ -60,7 +69,7 @@ static void ksu_mnt_ns_global(void)
     }
 
     struct path saved_pwd;
-    get_fs_pwd(current->fs, &saved_pwd);
+    ksu_get_fs_pwd(current->fs, &saved_pwd);
     pwd_path = d_path(&saved_pwd, pwd_buf, PATH_MAX);
     path_put(&saved_pwd);
 
@@ -93,13 +102,15 @@ try_setns:
         goto out;
     }
     struct path ns_path;
-    long ret = ns_get_path(&ns_path, pid1_task, &mntns_operations);
+    long ret = (ksu_syms.ns_get_path && ksu_syms.mntns_operations) ?
+        ksu_syms.ns_get_path(&ns_path, pid1_task, ksu_syms.mntns_operations) : -ENOSYS;
     put_task_struct(pid1_task);
     if (ret) {
         pr_warn("failed get path for init mount namespace: %ld\n", ret);
         goto out;
     }
-    struct file *ns_file = dentry_open(&ns_path, O_RDONLY, ksu_cred);
+    struct file *ns_file = ksu_syms.dentry_open ?
+        ksu_syms.dentry_open(&ns_path, O_RDONLY, ksu_cred) : ERR_PTR(-ENOSYS);
 
     path_put(&ns_path);
     if (IS_ERR(ns_file)) {
@@ -129,7 +140,8 @@ try_setns:
         struct path new_pwd;
         int err = kern_path(pwd_path, 0, &new_pwd);
         if (!err) {
-            set_fs_pwd(current->fs, &new_pwd);
+            if (ksu_syms.set_fs_pwd)
+                ksu_syms.set_fs_pwd(current->fs, &new_pwd);
             path_put(&new_pwd);
         } else {
             pr_warn("restore pwd failed: %d, path: %s\n", err, pwd_path);
@@ -142,7 +154,7 @@ out:
 // individual mode , need CAP_SYS_ADMIN to perform unshare and remount
 static void ksu_mnt_ns_individual(void)
 {
-    long ret = ksys_unshare(CLONE_NEWNS);
+    long ret = ksu_syms.ksys_unshare ? ksu_syms.ksys_unshare(CLONE_NEWNS) : -ENOSYS;
     if (ret) {
         pr_warn("call ksys_unshare failed: %ld\n", ret);
         return;
@@ -150,8 +162,9 @@ static void ksu_mnt_ns_individual(void)
 
     // make root mount private
     struct path root_path;
-    get_fs_root(current->fs, &root_path);
-    int pm_ret = path_mount(NULL, &root_path, NULL, MS_PRIVATE | MS_REC, NULL);
+    ksu_get_fs_root(current->fs, &root_path);
+    int pm_ret = ksu_syms.path_mount ?
+        ksu_syms.path_mount(NULL, &root_path, NULL, MS_PRIVATE | MS_REC, NULL) : -ENOSYS;
     path_put(&root_path);
 
     if (pm_ret < 0) {
@@ -173,11 +186,13 @@ void setup_mount_ns(int32_t ns_mode)
         return;
     }
 
-    const struct cred *old_cred = override_creds(ksu_cred);
+    const struct cred *old_cred = ksu_syms.override_creds ?
+        ksu_syms.override_creds(ksu_cred) : NULL;
     if (ns_mode == KSU_NS_GLOBAL) {
         ksu_mnt_ns_global();
     } else {
         ksu_mnt_ns_individual();
     }
-    revert_creds(old_cred);
+    if (old_cred && ksu_syms.revert_creds)
+        ksu_syms.revert_creds(old_cred);
 }

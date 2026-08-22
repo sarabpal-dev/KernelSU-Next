@@ -19,6 +19,7 @@
 #include "selinux/selinux.h"
 
 #include "infra/file_wrapper.h"
+#include "ksu_kallsyms.h"
 
 struct ksu_file_wrapper {
     struct file *orig;
@@ -30,8 +31,8 @@ static struct ksu_file_wrapper *ksu_create_file_wrapper(struct file *fp);
 static int ksu_wrapper_open(struct inode *ino, struct file *fp)
 {
     struct path *orig_path = fp->f_path.dentry->d_fsdata;
-    struct file *orig_file =
-        dentry_open(orig_path, fp->f_flags, current_cred());
+    struct file *orig_file = ksu_syms.dentry_open ?
+        ksu_syms.dentry_open(orig_path, fp->f_flags, current_cred()) : ERR_PTR(-ENOSYS);
     if (IS_ERR(orig_file)) {
         return PTR_ERR(orig_file);
     }
@@ -489,7 +490,8 @@ ksu_anon_inode_make_secure_inode(const char *name,
     if (IS_ERR(inode))
         return inode;
     inode->i_flags &= ~S_PRIVATE;
-    error = security_inode_init_security_anon(inode, &qname, context_inode);
+    error = ksu_syms.security_inode_init_security_anon ?
+        ksu_syms.security_inode_init_security_anon(inode, &qname, context_inode) : 0;
     if (error) {
         iput(inode);
         return ERR_PTR(error);
@@ -513,8 +515,9 @@ static struct file *ksu_anon_inode_create_getfile_compat(
         goto err;
     }
 
-    file = alloc_file_pseudo(inode, anon_inode_mnt, name,
-                             flags & (O_ACCMODE | O_NONBLOCK), fops);
+    file = ksu_syms.alloc_file_pseudo ?
+        ksu_syms.alloc_file_pseudo(inode, anon_inode_mnt, name,
+                                  flags & (O_ACCMODE | O_NONBLOCK), fops) : ERR_PTR(-ENOSYS);
     if (IS_ERR(file))
         goto err_iput;
 
@@ -583,7 +586,8 @@ int ksu_install_file_wrapper(int fd)
         goto out_put_wrapper_file;
     }
     *orig_path = orig_file->f_path;
-    path_get(orig_path);
+    if (ksu_syms.path_get)
+        ksu_syms.path_get(orig_path);
     // Some applications (such as screen) won't work if the tty's path is weird,
     // Therefore, we use d_dname to spoof it to return the path to the original file.
     wrapper_file->f_path.dentry->d_fsdata = orig_path;

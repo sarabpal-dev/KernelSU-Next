@@ -10,22 +10,23 @@
 #include "runtime/ksud.h"
 #include "manager/manager_observer.h"
 #include "manager/throne_tracker.h"
+#include "ksu_kallsyms.h"
 
 bool ksu_module_mounted __read_mostly = false;
 bool ksu_boot_completed __read_mostly = false;
 
 extern void ksu_avc_spoof_late_init(void);
 
+static bool post_fs_data_done = false;
+
 void on_post_fs_data(void)
 {
-    static bool done = false;
-
-    if (done) {
+    if (post_fs_data_done) {
         pr_info("on_post_fs_data already done\n");
         return;
     }
 
-    done = true;
+    post_fs_data_done = true;
     pr_info("on_post_fs_data!\n");
 
     ksu_load_allow_list();
@@ -35,7 +36,13 @@ void on_post_fs_data(void)
     ksu_selinux_hide_handle_post_fs_data();
 }
 
-extern void ext4_unregister_sysfs(struct super_block *sb);
+void ksu_reset_boot_state(void)
+{
+    post_fs_data_done = false;
+    ksu_module_mounted = false;
+    ksu_boot_completed = false;
+    pr_info("ksu: reset boot state for soft reboot\n");
+}
 
 int nuke_ext4_sysfs(const char *mnt)
 {
@@ -53,7 +60,8 @@ int nuke_ext4_sysfs(const char *mnt)
         return -EINVAL;
     }
 
-    ext4_unregister_sysfs(path.dentry->d_inode->i_sb);
+    if (ksu_syms.ext4_unregister_sysfs)
+        ksu_syms.ext4_unregister_sysfs(path.dentry->d_inode->i_sb);
     path_put(&path);
     return 0;
 }

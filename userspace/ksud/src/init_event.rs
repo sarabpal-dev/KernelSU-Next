@@ -1,19 +1,21 @@
 use crate::module::{handle_updated_modules, prune_modules};
-use crate::utils::{is_safe_mode, switch_mnt_ns};
+use crate::utils::is_safe_mode;
 use crate::{
     assets, defs, ksucalls, metamodule, restorecon,
     utils::{self},
 };
 use anyhow::{Context, Result};
-use libc::_exit;
 use log::{error, info, warn};
-use prop_rs_android::resetprop::ResetProp;
-use prop_rs_android::sys_prop;
-use rustix::process::chdir;
 use std::path::Path;
-use std::process::Command;
+
 
 pub fn on_post_data_fs() -> Result<()> {
+    // Journal any mounts created during post-fs-data (module post-fs-data.sh
+    // scripts, common post-fs-data.d, and the metamodule mount script)
+    crate::cleanup::record_mount_journal(on_post_data_fs_impl)
+}
+
+fn on_post_data_fs_impl() -> Result<()> {
     if let Err(e) = ksucalls::ensure_uapi_version_matched() {
         error!("{e:#}, skip on_post_fs_data");
         return Ok(());
@@ -120,14 +122,40 @@ pub fn on_post_data_fs() -> Result<()> {
         warn!("execute metamodule mount failed: {e}");
     }
 
+    ksucalls::report_module_mounted();
+
     run_stage("post-mount", true);
+
+    sync_kernel_umount_list();
 
     std::env::set_current_dir("/").with_context(|| "failed to chdir to /")?;
 
     Ok(())
 }
 
+/// Sync all module mounts into the kernel's umount_list so that system_server (UID 1000)
+/// and non-root apps hide module mounts, allowing PackageManagerService to read clean original stock APKs.
+pub fn sync_kernel_umount_list() {
+    let mounts = crate::cleanup::find_all_module_mounts();
+    for mount in mounts {
+        let _ = ksucalls::umount_list_add(&mount.mount_point, 0);
+    }
+}
+
+/// Public stage runner. Journals any mounts made by stage scripts — universal:
+/// covers modules that mount from their own service.sh/post-fs-data.sh, not
+/// just the metamodule's metamount.sh.
 pub fn run_stage(stage: &str, block: bool) {
+    if let Err(e) = crate::cleanup::record_mount_journal(|| {
+        run_stage_impl(stage, block);
+        Ok(())
+    }) {
+        warn!("mount journal recording failed for stage {stage}: {e}");
+    }
+    sync_kernel_umount_list();
+}
+
+fn run_stage_impl(stage: &str, block: bool) {
     utils::umask(0);
 
     if utils::has_magisk() {
@@ -161,7 +189,9 @@ pub fn on_services() {
         return;
     }
 
-    info!("on_services triggered!");
+    info!("on_services triggered! Waiting for PMS package scan completion...");
+    crate::soft_reboot::wait_pms_ready(std::time::Duration::from_secs(90));
+    info!("PMS scan complete, executing service stage scripts");
     run_stage("service", false);
 }
 
@@ -177,38 +207,9 @@ pub fn on_boot_completed() {
     run_stage("boot-completed", false);
 }
 
-const fn resetprop() -> ResetProp {
-    ResetProp {
-        skip_svc: true,
-        persistent: false,
-        persist_only: false,
-        verbose: false,
-        show_context: false,
-        rebuild: false,
-    }
-}
-
-fn reset_boot_completed() -> Result<()> {
-    sys_prop::init().context("Failed to initialize system property API")?;
-    let rp = resetprop();
-    // Set prop value to 0 in advance to ensure resetprop -w works
-    info!("reset boot complete prop to 0");
-    rp.set("sys.boot_completed", "0")
-        .context("Failed to set sys.boot_completed to 0")?;
-    Ok(())
-}
-
-fn wait_for_boot_completed() -> Result<()> {
-    sys_prop::init().context("Failed to initialize system property API")?;
-    let rp = resetprop();
-    info!("waiting for boot complete");
-    rp.wait("sys.boot_completed", Some("0"), None)
-        .context("wait for sys.boot_completed failed")?;
-    Ok(())
-}
-
 #[cfg(unix)]
 fn catch_bootlog(logname: &str, command: &[&str]) -> Result<()> {
+
     use std::os::unix::process::CommandExt;
     use std::process::Stdio;
 
@@ -245,44 +246,3 @@ fn catch_bootlog(logname: &str, command: &[&str]) -> Result<()> {
     Ok(())
 }
 
-pub fn soft_reboot() -> Result<()> {
-    // check it avoid user click "soft_reboot" in manager when version mismatch
-    if let Err(e) = ksucalls::ensure_uapi_version_matched() {
-        error!("{e:#}, skip soft_reboot");
-        return Ok(());
-    }
-
-    utils::daemonize_with(true, || -> Result<()> {
-        switch_mnt_ns(1)?;
-        chdir("/")?;
-        Ok(())
-    })?;
-
-    info!("emulating soft_reboot!");
-    if let Err(e) = reset_boot_completed() {
-        warn!("reset boot completed failed: {e}");
-    }
-    run_stage("emulated-soft-reboot", true);
-    info!("stop");
-    let status = Command::new("stop").status().context("stop failed")?;
-    if !status.success() {
-        warn!("stop exited with status: {status}");
-    }
-    info!("post-fs-data");
-    on_post_data_fs()?;
-    info!("start");
-    let status = Command::new("start").status().context("start failed")?;
-    if !status.success() {
-        warn!("start exited with status: {status}");
-    }
-    info!("services");
-    on_services();
-    if let Err(e) = wait_for_boot_completed() {
-        warn!("wait for boot completed failed: {e}");
-    }
-    on_boot_completed();
-
-    unsafe {
-        _exit(0);
-    }
-}

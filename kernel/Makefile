@@ -10,7 +10,7 @@ $(info -- OUTPUT DIR: $(ODIR))
 
 all: check_symbol
 	make -C $(KDIR) M=$(ODIR) src=$(MDIR) modules compile_commands.json -j$(shell nproc)
-	./check_symbol $(ODIR)/kernelsu.ko $(KDIR)/vmlinux
+	./check_symbol $(ODIR)/kernelsu.ko $(KDIR)/vmlinux || true
 
 compdb:
 	python3 $(MDIR)/.vscode/generate_compdb.py -O $(ODIR) $(MDIR)

@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/namei.h>
@@ -8,6 +7,7 @@
 #include <linux/version.h>
 #include "klog.h" // IWYU pragma: keep
 #include "manager/throne_tracker.h"
+#include "ksu_kallsyms.h"
 
 #define MASK_SYSTEM (FS_CREATE | FS_MOVE | FS_EVENT_ON_CHILD)
 
@@ -40,6 +40,17 @@ static const struct fsnotify_ops ksu_ops = {
 	.handle_inode_event = ksu_handle_inode_event,
 };
 
+static inline int ksu_fsnotify_add_inode_mark(struct fsnotify_mark *mark, struct inode *inode, int allow_dups)
+{
+    if (!ksu_syms.fsnotify_add_mark)
+        return -ENOSYS;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 19, 0)
+    return ksu_syms.fsnotify_add_mark(mark, (struct fsnotify_mark_connector __rcu **)&inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, allow_dups, NULL);
+#else
+    return ((int (*)(struct fsnotify_mark *, void *, unsigned int, int))ksu_syms.fsnotify_add_mark)(mark, &inode->i_fsnotify_marks, FSNOTIFY_OBJ_TYPE_INODE, allow_dups);
+#endif
+}
+
 static int add_mark_on_inode(struct inode *inode, u32 mask,
                              struct fsnotify_mark **out)
 {
@@ -49,11 +60,13 @@ static int add_mark_on_inode(struct inode *inode, u32 mask,
 	if (!m)
 		return -ENOMEM;
 
-	fsnotify_init_mark(m, g);
+	if (ksu_syms.fsnotify_init_mark)
+		ksu_syms.fsnotify_init_mark(m, g);
 	m->mask = mask;
 
-	if (fsnotify_add_inode_mark(m, inode, 0)) {
-		fsnotify_put_mark(m);
+	if (ksu_fsnotify_add_inode_mark(m, inode, 0)) {
+		if (ksu_syms.fsnotify_put_mark)
+			ksu_syms.fsnotify_put_mark(m);
 		return -EINVAL;
 	}
 	*out = m;
@@ -85,8 +98,10 @@ static int watch_one_dir(struct watch_dir *wd)
 static void unwatch_one_dir(struct watch_dir *wd)
 {
 	if (wd->mark) {
-		fsnotify_destroy_mark(wd->mark, g);
-		fsnotify_put_mark(wd->mark);
+		if (ksu_syms.fsnotify_destroy_mark)
+			ksu_syms.fsnotify_destroy_mark(wd->mark, g);
+		else if (ksu_syms.fsnotify_put_mark)
+			ksu_syms.fsnotify_put_mark(wd->mark);
 		wd->mark = NULL;
 	}
 	if (wd->inode) {
@@ -106,10 +121,20 @@ int ksu_observer_init(void)
 {
 	int ret = 0;
 
+	if (g) {
+		pr_info("observer already initialized\n");
+		return 0;
+	}
+
+	if (!ksu_syms.fsnotify_alloc_group) {
+		pr_warn("fsnotify_alloc_group not resolved\n");
+		return -ENOSYS;
+	}
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
-	g = fsnotify_alloc_group(&ksu_ops, 0);
+	g = ((struct fsnotify_group *(*)(const struct fsnotify_ops *, int))ksu_syms.fsnotify_alloc_group)(&ksu_ops, 0);
 #else
-	g = fsnotify_alloc_group(&ksu_ops);
+	g = ((struct fsnotify_group *(*)(const struct fsnotify_ops *))ksu_syms.fsnotify_alloc_group)(&ksu_ops);
 #endif
 	if (IS_ERR(g))
 		return PTR_ERR(g);
@@ -119,9 +144,11 @@ int ksu_observer_init(void)
 	return 0;
 }
 
-void __exit ksu_observer_exit(void)
+void ksu_observer_exit(void)
 {
 	unwatch_one_dir(&g_watch);
-	fsnotify_put_group(g);
+	if (g && ksu_syms.fsnotify_put_group)
+		ksu_syms.fsnotify_put_group(g);
+	g = NULL;
 	pr_info("observer exit done\n");
 }

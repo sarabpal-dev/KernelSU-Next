@@ -77,6 +77,43 @@ static void (*context_struct_compute_av_fn)(struct policydb *policydb, struct co
 static struct selinux_state fake_state;
 #endif
 
+#include "ksu_kallsyms.h"
+
+#ifdef avc_has_perm
+#undef avc_has_perm
+#endif
+#define avc_has_perm (ksu_syms.avc_has_perm)
+
+#ifdef security_context_to_sid
+#undef security_context_to_sid
+#endif
+#define security_context_to_sid (ksu_syms.security_context_to_sid)
+
+#ifdef security_sid_to_context
+#undef security_sid_to_context
+#endif
+#define security_sid_to_context (ksu_syms.security_sid_to_context)
+
+#ifdef security_context_str_to_sid
+#undef security_context_str_to_sid
+#endif
+#define security_context_str_to_sid (ksu_syms.security_context_str_to_sid)
+
+#ifdef security_compute_av_user
+#undef security_compute_av_user
+#endif
+#define security_compute_av_user (ksu_syms.security_compute_av_user)
+
+#ifdef sidtab_destroy
+#undef sidtab_destroy
+#endif
+#define sidtab_destroy (ksu_syms.sidtab_destroy)
+
+#ifdef selinux_state
+#undef selinux_state
+#endif
+#define selinux_state (*ksu_syms.selinux_state)
+
 static write_op_fn *context_write, *access_write;
 static write_op_fn orig_context_write, orig_access_write;
 

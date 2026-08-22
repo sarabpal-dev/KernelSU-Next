@@ -35,6 +35,10 @@ private const val TAG = "KsuCli"
 private const val BUSYBOX = "/data/adb/ksu/bin/busybox"
 
 private fun getKsuDaemonPath(): String {
+    val systemDaemon = File("/data/adb/ksud")
+    if (systemDaemon.exists()) {
+        return "/data/adb/ksud"
+    }
     return ksuApp.applicationInfo.nativeLibraryDir + File.separator + "libksud.so"
 }
 
@@ -398,9 +402,9 @@ fun installBoot(
 }
 
 fun reboot(reason: String = "") {
-    if (reason == "soft-reboot") {
+    if (reason == "soft-reboot" || reason == "soft_reboot" || reason == "userspace") {
         // ksud (userspace)
-        com.rifsxd.ksunext.ui.util.execKsud("soft-reboot", true, true)
+        execKsud("soft-reboot", true, true)
         return
     }
 

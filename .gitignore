@@ -1,6 +1,39 @@
+# Build Artifacts & Binaries
+*.apk
+*.zip
+*.ko
+*.o
+*.so
+*.mod.c
+*.mod
+*.order
+*.symvers
+*.cmd
+
+# Build & Cache Directories
+out/
+build/
+.gradle/
+.cxx/
+target/
+userspace/ksud/ksud
+userspace/ksud/out/
+
+# IDE & Log Files
 .idea
 .vscode
 CLAUDE.md
 AGENTS.md
 .DS_Store
-/userspace/ksud/.lkm_image_bootstrap.o
+vmlinux
+logs.txt
+Vector/
+
+# Keystores & Private Keys
+*.jks
+*.keystore
+*.pem
+*.pk8
+
+
+

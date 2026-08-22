@@ -139,7 +139,10 @@ enum Commands {
 
     /// Emulate soft reboot (ksud; zygote)
     #[command(name = "soft-reboot")]
-    SoftReboot,
+    SoftReboot {
+        #[arg(long, default_value_t = false)]
+        from_guard: bool,
+    },
 
     /// Susfs management
     Susfs {
@@ -763,7 +766,23 @@ pub fn run() -> Result<()> {
             full_args.extend(args);
             crate::resetprop::resetprop_main(&full_args)
         }
-        Commands::SoftReboot => init_event::soft_reboot(),
+        Commands::SoftReboot { from_guard } => {
+            let source = if from_guard {
+                crate::soft_reboot::SoftRebootSource::Guard
+            } else {
+                crate::soft_reboot::SoftRebootSource::User
+            };
+            utils::daemonize_with(true, || -> Result<()> {
+                utils::switch_mnt_ns(1)?;
+                rustix::process::chdir("/")?;
+                Ok(())
+            })?;
+            let result = crate::soft_reboot::run(source);
+            if let Err(e) = &result {
+                log::error!("soft_reboot failed: {e:#}");
+            }
+            unsafe { libc::_exit(0) }
+        }
 
         Commands::Insmod { module, params } => debug::insmod(&module, &params),
 

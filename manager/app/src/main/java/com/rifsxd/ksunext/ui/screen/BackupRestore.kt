@@ -3,6 +3,7 @@ package com.rifsxd.ksunext.ui.screen
 import android.app.Activity.RESULT_OK
 import android.content.Intent
 import android.net.Uri
+import com.rifsxd.ksunext.Natives
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -201,7 +202,8 @@ fun BackupRestoreScreen(navigator: DestinationsNavigator) {
         val backupFailed    = stringResource(R.string.backup_failed)
         val restoreSuccess  = stringResource(R.string.restore_success)
         val restoreFailed   = stringResource(R.string.restore_failed)
-        val reboot          = stringResource(R.string.reboot)
+        val isLateLoad      = remember { Natives.isLateLoadMode }
+        val reboot          = stringResource(if (isLateLoad) R.string.reboot_userspace else R.string.reboot)
 
         // ── CREATE DOCUMENT launcher (backup) ────────────────────────────────
         val createBackupLauncher = rememberLauncherForActivityResult(
@@ -245,7 +247,7 @@ fun BackupRestoreScreen(navigator: DestinationsNavigator) {
                         duration = SnackbarDuration.Long
                     )
                     if (result == SnackbarResult.ActionPerformed) {
-                        reboot()
+                        reboot("soft-reboot")
                     }
                 } else {
                     snackBarHost.showSnackbar(

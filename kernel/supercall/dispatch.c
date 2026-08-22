@@ -22,6 +22,7 @@
 #include "sulog/event.h"
 #include "sulog/fd.h"
 #include "supercall/supercall.h"
+#include "ksu_kallsyms.h"
 
 static int do_grant_root(void __user *arg)
 {
@@ -107,29 +108,13 @@ static int do_report_event(void __user *arg)
 
     switch (cmd.event) {
     case EVENT_POST_FS_DATA: {
-        static bool post_fs_data_lock = false;
-        if (!post_fs_data_lock) {
-            post_fs_data_lock = true;
-            if (ksu_late_loaded) {
-                pr_info("post-fs-data skipped (late load)\n");
-            } else {
-                pr_info("post-fs-data triggered\n");
-                on_post_fs_data();
-            }
-        }
+        pr_info("post-fs-data triggered\n");
+        on_post_fs_data();
         break;
     }
     case EVENT_BOOT_COMPLETED: {
-        static bool boot_complete_lock = false;
-        if (!boot_complete_lock) {
-            boot_complete_lock = true;
-            if (ksu_late_loaded) {
-                pr_info("boot_complete skipped (late load)\n");
-            } else {
-                pr_info("boot_complete triggered\n");
-                on_boot_completed();
-            }
-        }
+        pr_info("boot_complete triggered\n");
+        on_boot_completed();
         break;
     }
     case EVENT_MODULE_MOUNTED: {
@@ -742,7 +727,8 @@ static int do_set_init_pgrp(void __user *arg)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0)
         change_pid(pids, p, PIDTYPE_PGID, init_group);
 #else
-        change_pid(p, PIDTYPE_PGID, init_group);
+        if (ksu_syms.change_pid)
+            ksu_syms.change_pid(p, PIDTYPE_PGID, init_group);
 #endif
     }
 
@@ -772,9 +758,45 @@ static int do_get_sulog_fd(void __user *arg)
     return ksu_install_sulog_fd();
 }
 
+#include "reboot_guard.h"
+
 static int do_disable_escape_to_root(void __user *arg)
 {
     set_thread_flag(TIF_KSU_DISABLE_ESCAPE_WITH_ROOT);
+    return 0;
+}
+
+static int do_reset_boot_state(void __user *arg)
+{
+    ksu_reset_boot_state();
+    return 0;
+}
+
+static int do_force_umount(void __user *arg)
+{
+    struct ksu_force_umount_cmd cmd;
+    char path_buf[PATH_MAX];
+    int err;
+
+    if (copy_from_user(&cmd, arg, sizeof(cmd)))
+        return -EFAULT;
+
+    if (strncpy_from_user(path_buf, (const char __user *)cmd.arg, sizeof(path_buf)) < 0)
+        return -EFAULT;
+    path_buf[sizeof(path_buf) - 1] = '\0';
+
+    err = ksu_force_umount_path(path_buf, cmd.flags);
+    cmd.result = err;
+
+    if (copy_to_user(arg, &cmd, sizeof(cmd)))
+        return -EFAULT;
+
+    return 0;
+}
+
+static int do_real_reboot_once(void __user *arg)
+{
+    ksu_real_reboot_once();
     return 0;
 }
 
@@ -924,6 +946,24 @@ static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers[] = {
         .name = "DISABLE_ESCAPE_TO_ROOT", 
         .handler = do_disable_escape_to_root, 
         .perm_check = only_root 
+    },
+    {
+        .cmd = KSU_IOCTL_RESET_BOOT_STATE,
+        .name = "RESET_BOOT_STATE",
+        .handler = do_reset_boot_state,
+        .perm_check = only_root
+    },
+    {
+        .cmd = KSU_IOCTL_FORCE_UMOUNT,
+        .name = "FORCE_UMOUNT",
+        .handler = do_force_umount,
+        .perm_check = only_root
+    },
+    {
+        .cmd = KSU_IOCTL_REAL_REBOOT_ONCE,
+        .name = "REAL_REBOOT_ONCE",
+        .handler = do_real_reboot_once,
+        .perm_check = only_root
     },
     {
         .cmd = KSU_IOCTL_GET_HOOK_MODE,

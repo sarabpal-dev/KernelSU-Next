@@ -46,6 +46,10 @@ mod android {
     pub const METAMODULE_METAINSTALL_SCRIPT: &str = "metainstall.sh";
     pub const METAMODULE_METAUNINSTALL_SCRIPT: &str = "metauninstall.sh";
 
+    // WP6: Live module ops
+    pub const MOUNT_JOURNAL_PATH: &str = concatcp!(WORKING_DIR, "mount_journal.json");
+    pub const PROP_BASELINE_PATH: &str = concatcp!(WORKING_DIR, "prop_baseline.json");
+
     pub const KSU_BACKUP_DIR: &str = WORKING_DIR;
     pub const KSU_BACKUP_FILE_PREFIX: &str = "ksun_backup_";
     pub const BACKUP_FILENAME: &str = "stock_image.sha1";

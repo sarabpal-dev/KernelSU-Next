@@ -4,6 +4,7 @@
 #include <linux/version.h>
 
 #include "infra/symbol_resolver.h"
+#include "ksu_kallsyms.h"
 
 // https://github.com/torvalds/linux/commit/89245600941e4e0f87d77f60ee269b5e61ef4e49
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 1, 0)
@@ -66,9 +67,10 @@ unsigned long __nocfi find_kernel_symbol_exact(const char *symbol_name)
     char *module_name = NULL;
     char buf[KSYM_SYMBOL_LEN];
 
-    addr = kallsyms_lookup_name(symbol_name);
+    addr = ksu_kallsyms_lookup_name(symbol_name);
     // check if it is kernel symbol
-    kallsyms_lookup(addr, NULL, NULL, &module_name, buf);
+    if (ksu_syms.kallsyms_lookup)
+        ksu_syms.kallsyms_lookup(addr, NULL, NULL, &module_name, buf);
     if (unlikely(module_name)) {
         pr_warn("ignore symbol %s of module %s\n", symbol_name, module_name);
         return 0;

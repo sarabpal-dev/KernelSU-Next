@@ -21,6 +21,319 @@
 #include "hook/setuid_hook.h"
 #include "hook/syscall_hook.h"
 #include "hook/syscall_event_bridge.h"
+#include "ksu_kallsyms.h"
+
+#include <linux/task_work.h>
+#include "policy/allowlist.h"
+
+static bool syscall_hook_manager_initialized;
+
+#if defined(CONFIG_KSU_SAMSUNG_RKP) && defined(CONFIG_KRETPROBES) && defined(__aarch64__)
+struct ksu_setresuid_task_work {
+    struct callback_head callback;
+    uid_t old_uid;
+    uid_t new_uid;
+};
+
+static bool setresuid_kretprobe_registered;
+static bool samsung_sucompat_kprobes_registered;
+
+#define SAMSUNG_SUCOMPAT_BYPASS_NR (-2)
+
+static bool samsung_sucompat_should_redirect(int syscall_nr)
+{
+    struct pt_regs *syscall_regs = task_pt_regs(current);
+
+    if (unlikely(syscall_regs->syscallno == SAMSUNG_SUCOMPAT_BYPASS_NR)) {
+        syscall_regs->syscallno = syscall_nr;
+        return false;
+    }
+
+    return ksu_su_compat_enabled &&
+           ksu_is_allow_uid_for_current(current_uid().val);
+}
+
+static long __nocfi samsung_sucompat_execve(const struct pt_regs *regs)
+{
+    struct pt_regs *syscall_regs = (struct pt_regs *)regs;
+    int syscall_nr = syscall_regs->syscallno;
+    long ret;
+
+    syscall_regs->syscallno = SAMSUNG_SUCOMPAT_BYPASS_NR;
+    ret = ksu_hook_execve(__NR_execve, regs);
+    syscall_regs->syscallno = syscall_nr;
+    return ret;
+}
+
+static long __nocfi samsung_sucompat_newfstatat(const struct pt_regs *regs)
+{
+    struct pt_regs *syscall_regs = (struct pt_regs *)regs;
+    int syscall_nr = syscall_regs->syscallno;
+    long ret;
+
+    syscall_regs->syscallno = SAMSUNG_SUCOMPAT_BYPASS_NR;
+    ret = ksu_hook_newfstatat(__NR_newfstatat, regs);
+    syscall_regs->syscallno = syscall_nr;
+    return ret;
+}
+
+static long __nocfi samsung_sucompat_faccessat(const struct pt_regs *regs)
+{
+    struct pt_regs *syscall_regs = (struct pt_regs *)regs;
+    int syscall_nr = syscall_regs->syscallno;
+    long ret;
+
+    syscall_regs->syscallno = SAMSUNG_SUCOMPAT_BYPASS_NR;
+    ret = ksu_hook_faccessat(__NR_faccessat, regs);
+    syscall_regs->syscallno = syscall_nr;
+    return ret;
+}
+
+static long __nocfi samsung_sucompat_statx(const struct pt_regs *regs)
+{
+    struct pt_regs *syscall_regs = (struct pt_regs *)regs;
+    int syscall_nr = syscall_regs->syscallno;
+    long ret;
+
+    syscall_regs->syscallno = SAMSUNG_SUCOMPAT_BYPASS_NR;
+    ret = ksu_hook_newfstatat(__NR_statx, regs);
+    syscall_regs->syscallno = syscall_nr;
+    return ret;
+}
+
+static long __nocfi samsung_sucompat_faccessat2(const struct pt_regs *regs)
+{
+    struct pt_regs *syscall_regs = (struct pt_regs *)regs;
+    int syscall_nr = syscall_regs->syscallno;
+    long ret;
+
+    syscall_regs->syscallno = SAMSUNG_SUCOMPAT_BYPASS_NR;
+    ret = ksu_hook_faccessat(__NR_faccessat2, regs);
+    syscall_regs->syscallno = syscall_nr;
+    return ret;
+}
+
+static int samsung_sucompat_execve_pre_handler(struct kprobe *probe, struct pt_regs *regs)
+{
+    if (!samsung_sucompat_should_redirect(__NR_execve))
+        return 0;
+
+    instruction_pointer_set(regs, (unsigned long)samsung_sucompat_execve);
+    return 1;
+}
+
+static int samsung_sucompat_newfstatat_pre_handler(struct kprobe *probe, struct pt_regs *regs)
+{
+    if (!samsung_sucompat_should_redirect(__NR_newfstatat))
+        return 0;
+
+    instruction_pointer_set(regs, (unsigned long)samsung_sucompat_newfstatat);
+    return 1;
+}
+
+static int samsung_sucompat_faccessat_pre_handler(struct kprobe *probe, struct pt_regs *regs)
+{
+    if (!samsung_sucompat_should_redirect(__NR_faccessat))
+        return 0;
+
+    instruction_pointer_set(regs, (unsigned long)samsung_sucompat_faccessat);
+    return 1;
+}
+
+static int samsung_sucompat_statx_pre_handler(struct kprobe *probe, struct pt_regs *regs)
+{
+    if (!samsung_sucompat_should_redirect(__NR_statx))
+        return 0;
+
+    instruction_pointer_set(regs, (unsigned long)samsung_sucompat_statx);
+    return 1;
+}
+
+static int samsung_sucompat_faccessat2_pre_handler(struct kprobe *probe, struct pt_regs *regs)
+{
+    if (!samsung_sucompat_should_redirect(__NR_faccessat2))
+        return 0;
+
+    instruction_pointer_set(regs, (unsigned long)samsung_sucompat_faccessat2);
+    return 1;
+}
+
+static struct kprobe samsung_sucompat_execve_kprobe = {
+    .pre_handler = samsung_sucompat_execve_pre_handler,
+};
+
+static struct kprobe samsung_sucompat_newfstatat_kprobe = {
+    .pre_handler = samsung_sucompat_newfstatat_pre_handler,
+};
+
+static struct kprobe samsung_sucompat_faccessat_kprobe = {
+    .pre_handler = samsung_sucompat_faccessat_pre_handler,
+};
+
+static struct kprobe samsung_sucompat_statx_kprobe = {
+    .pre_handler = samsung_sucompat_statx_pre_handler,
+};
+
+static struct kprobe samsung_sucompat_faccessat2_kprobe = {
+    .pre_handler = samsung_sucompat_faccessat2_pre_handler,
+};
+
+static int samsung_sucompat_hook_init(void)
+{
+    int ret;
+
+    if (!ksu_syscall_table)
+        return -ENOENT;
+
+    ksu_sucompat_init();
+
+    if (__NR_execve < __NR_syscalls && ksu_syscall_table[__NR_execve]) {
+        samsung_sucompat_execve_kprobe.addr =
+            (kprobe_opcode_t *)READ_ONCE(ksu_syscall_table[__NR_execve]);
+        ret = register_kprobe(&samsung_sucompat_execve_kprobe);
+        if (ret) {
+            pr_warn("hook_manager: execve kprobe failed: %d\n", ret);
+            samsung_sucompat_execve_kprobe.addr = NULL;
+        }
+    }
+
+    if (__NR_newfstatat < __NR_syscalls && ksu_syscall_table[__NR_newfstatat]) {
+        samsung_sucompat_newfstatat_kprobe.addr =
+            (kprobe_opcode_t *)READ_ONCE(ksu_syscall_table[__NR_newfstatat]);
+        ret = register_kprobe(&samsung_sucompat_newfstatat_kprobe);
+        if (ret) {
+            pr_warn("hook_manager: newfstatat kprobe failed: %d\n", ret);
+            samsung_sucompat_newfstatat_kprobe.addr = NULL;
+        }
+    }
+
+    if (__NR_faccessat < __NR_syscalls && ksu_syscall_table[__NR_faccessat]) {
+        samsung_sucompat_faccessat_kprobe.addr =
+            (kprobe_opcode_t *)READ_ONCE(ksu_syscall_table[__NR_faccessat]);
+        ret = register_kprobe(&samsung_sucompat_faccessat_kprobe);
+        if (ret) {
+            pr_warn("hook_manager: faccessat kprobe failed: %d\n", ret);
+            samsung_sucompat_faccessat_kprobe.addr = NULL;
+        }
+    }
+
+    if (__NR_statx < __NR_syscalls && ksu_syscall_table[__NR_statx]) {
+        samsung_sucompat_statx_kprobe.addr =
+            (kprobe_opcode_t *)READ_ONCE(ksu_syscall_table[__NR_statx]);
+        ret = register_kprobe(&samsung_sucompat_statx_kprobe);
+        if (ret) {
+            pr_warn("hook_manager: statx kprobe failed: %d\n", ret);
+            samsung_sucompat_statx_kprobe.addr = NULL;
+        }
+    }
+
+    if (__NR_faccessat2 < __NR_syscalls && ksu_syscall_table[__NR_faccessat2]) {
+        samsung_sucompat_faccessat2_kprobe.addr =
+            (kprobe_opcode_t *)READ_ONCE(ksu_syscall_table[__NR_faccessat2]);
+        ret = register_kprobe(&samsung_sucompat_faccessat2_kprobe);
+        if (ret) {
+            pr_warn("hook_manager: faccessat2 kprobe failed: %d\n", ret);
+            samsung_sucompat_faccessat2_kprobe.addr = NULL;
+        }
+    }
+
+    samsung_sucompat_kprobes_registered = true;
+    pr_info("hook_manager: Samsung sucompat kprobes registered\n");
+    return 0;
+}
+
+static void samsung_sucompat_hook_exit(void)
+{
+    if (!samsung_sucompat_kprobes_registered)
+        return;
+
+    if (samsung_sucompat_faccessat2_kprobe.addr)
+        unregister_kprobe(&samsung_sucompat_faccessat2_kprobe);
+    if (samsung_sucompat_statx_kprobe.addr)
+        unregister_kprobe(&samsung_sucompat_statx_kprobe);
+    if (samsung_sucompat_faccessat_kprobe.addr)
+        unregister_kprobe(&samsung_sucompat_faccessat_kprobe);
+    if (samsung_sucompat_newfstatat_kprobe.addr)
+        unregister_kprobe(&samsung_sucompat_newfstatat_kprobe);
+    if (samsung_sucompat_execve_kprobe.addr)
+        unregister_kprobe(&samsung_sucompat_execve_kprobe);
+    samsung_sucompat_kprobes_registered = false;
+    ksu_sucompat_exit();
+}
+
+static void setresuid_task_work_func(struct callback_head *callback)
+{
+    struct ksu_setresuid_task_work *work = container_of(callback, struct ksu_setresuid_task_work, callback);
+
+    ksu_handle_setresuid(work->old_uid, work->new_uid);
+    kfree(work);
+}
+
+static int setresuid_entry_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
+{
+    *(uid_t *)ri->data = current_uid().val;
+    return 0;
+}
+
+static int setresuid_return_handler(struct kretprobe_instance *ri, struct pt_regs *regs)
+{
+    struct ksu_setresuid_task_work *work;
+    uid_t old_uid = *(uid_t *)ri->data;
+    uid_t new_uid;
+
+    if (regs_return_value(regs) < 0)
+        return 0;
+
+    new_uid = current_uid().val;
+    if (old_uid == new_uid)
+        return 0;
+
+    work = kzalloc(sizeof(*work), GFP_ATOMIC);
+    if (!work)
+        return 0;
+
+    work->old_uid = old_uid;
+    work->new_uid = new_uid;
+    work->callback.func = setresuid_task_work_func;
+
+    if (!ksu_syms.task_work_add || ksu_syms.task_work_add(current, &work->callback, TWA_RESUME))
+        kfree(work);
+
+    return 0;
+}
+
+static struct kretprobe setresuid_kretprobe = {
+    .kp.symbol_name = "__arm64_sys_setresuid",
+    .entry_handler = setresuid_entry_handler,
+    .handler = setresuid_return_handler,
+    .data_size = sizeof(uid_t),
+};
+
+static int samsung_setresuid_hook_init(void)
+{
+    int ret = register_kretprobe(&setresuid_kretprobe);
+
+    if (ret) {
+        pr_err("hook_manager: Samsung setresuid kretprobe failed: %d\n", ret);
+        return ret;
+    }
+
+    setresuid_kretprobe_registered = true;
+    ksu_setuid_hook_init();
+    pr_info("hook_manager: Samsung setresuid kretprobe registered\n");
+    return 0;
+}
+
+static void samsung_setresuid_hook_exit(void)
+{
+    if (!setresuid_kretprobe_registered)
+        return;
+
+    unregister_kretprobe(&setresuid_kretprobe);
+    setresuid_kretprobe_registered = false;
+    ksu_setuid_hook_exit();
+}
+#endif
 
 #ifdef CONFIG_KRETPROBES
 
@@ -123,8 +436,22 @@ static void ksu_sys_enter_handler(void *data, struct pt_regs *regs, long id)
 
 void __init ksu_syscall_hook_manager_init(void)
 {
-    int ret;
+    int ret = 0;
     pr_info("hook_manager: ksu_hook_manager_init called\n");
+
+    if (ksu_dispatcher_nr < 0) {
+        pr_warn("hook_manager: dispatcher unavailable; syscall event hooks disabled\n");
+#if defined(CONFIG_KSU_SAMSUNG_RKP) && defined(CONFIG_KRETPROBES) && defined(__aarch64__)
+        samsung_setresuid_hook_init();
+        ret = samsung_sucompat_hook_init();
+        if (ret)
+            pr_err("hook_manager: Samsung sucompat hook init failed: %d\n", ret);
+        ksu_avc_spoof_init();
+#endif
+        return;
+    }
+
+    syscall_hook_manager_initialized = true;
 
 #ifdef CONFIG_KRETPROBES
     syscall_regfunc_rp = init_kretprobe("syscall_regfunc", syscall_regfunc_handler);
@@ -138,7 +465,12 @@ void __init ksu_syscall_hook_manager_init(void)
     ksu_register_syscall_hook(__NR_faccessat, ksu_hook_faccessat);
 
 #ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
-    ret = register_trace_prio_sys_enter(ksu_sys_enter_handler, NULL, INT_MIN);
+    if (ksu_syms.__tracepoint_sys_enter) {
+        ret = tracepoint_probe_register_prio((struct tracepoint *)ksu_syms.__tracepoint_sys_enter,
+                                             (void *)ksu_sys_enter_handler, NULL, INT_MIN);
+    } else {
+        ret = -ENOENT;
+    }
 #ifndef CONFIG_KRETPROBES
     ksu_mark_running_process_locked();
 #endif
@@ -157,8 +489,22 @@ void __init ksu_syscall_hook_manager_init(void)
 void __exit ksu_syscall_hook_manager_exit(void)
 {
     pr_info("hook_manager: ksu_hook_manager_exit called\n");
+
+    if (!syscall_hook_manager_initialized) {
+#if defined(CONFIG_KSU_SAMSUNG_RKP) && defined(CONFIG_KRETPROBES) && defined(__aarch64__)
+        samsung_sucompat_hook_exit();
+        samsung_setresuid_hook_exit();
+        ksu_avc_spoof_exit();
+#endif
+        ksu_syscall_hook_exit();
+        return;
+    }
+
 #ifdef CONFIG_HAVE_SYSCALL_TRACEPOINTS
-    unregister_trace_sys_enter(ksu_sys_enter_handler, NULL);
+    if (ksu_syms.__tracepoint_sys_enter) {
+        tracepoint_probe_unregister((struct tracepoint *)ksu_syms.__tracepoint_sys_enter,
+                                    (void *)ksu_sys_enter_handler, NULL);
+    }
     tracepoint_synchronize_unregister();
     pr_info("hook_manager: sys_enter tracepoint unregistered\n");
 #endif

@@ -237,7 +237,8 @@ pub fn exec_script<T: AsRef<Path>>(path: T, wait: bool) -> Result<()> {
         .current_dir(path.as_ref().parent().unwrap())
         .arg("sh")
         .arg(path.as_ref())
-        .envs(get_common_script_envs(validated_module_id));
+        .envs(get_common_script_envs(validated_module_id))
+        .env_remove("ZYGISK_ENABLED");
 
     let result = if wait {
         command.status().map(|_| ())
@@ -306,22 +307,26 @@ pub fn load_system_prop() -> Result<()> {
     Ok(())
 }
 
-pub fn prune_modules() -> Result<()> {
-    foreach_module(All, |module| {
-        if !module.join(defs::REMOVE_FILE_NAME).exists() {
-            return Ok(());
-        }
+/// Reusable by both `prune_modules()` (boot-time) and `cleanup.rs` (live uninstall).
+/// `delete_dir`: if true, removes the module directory (uninstall). If false, keeps it (disable).
+#[allow(clippy::unnecessary_wraps)]
+pub fn prune_single_module(module: &Path, delete_dir: bool) -> Result<()> {
+    let module_id = module.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-        info!("remove module: {}", module.display());
+    info!(
+        "prune_single_module: {} (delete={})",
+        module.display(),
+        delete_dir
+    );
 
-        // Execute metamodule's metauninstall.sh first
-        let module_id = module.file_name().and_then(|n| n.to_str()).unwrap_or("");
-
+    // Run uninstall scripts only on actual uninstall (delete_dir=true),
+    // not on disable — matches Magisk semantics.
+    if delete_dir {
         // Check if this is a metamodule
-        let is_metamodule =
+        let is_metamodule_mod =
             read_module_prop(module).is_ok_and(|props| metamodule::is_metamodule(&props));
 
-        if is_metamodule {
+        if is_metamodule_mod {
             info!("Removing metamodule symlink");
             if let Err(e) = metamodule::remove_symlink() {
                 warn!("Failed to remove metamodule symlink: {e}");
@@ -330,23 +335,36 @@ pub fn prune_modules() -> Result<()> {
             warn!("Failed to exec metamodule uninstall for {module_id}: {e}");
         }
 
-        // Then execute module's own uninstall.sh
+        // Execute module's own uninstall.sh
         let uninstaller = module.join("uninstall.sh");
         if uninstaller.exists()
             && let Err(e) = exec_script(uninstaller, true)
         {
             warn!("Failed to exec uninstaller: {e}");
         }
+    }
 
-        // Clear module configs before removing module directory
-        if let Err(e) = crate::module_config::clear_module_configs(module_id) {
-            warn!("Failed to clear configs for {module_id}: {e}");
+    // Clear module configs
+    if let Err(e) = crate::module_config::clear_module_configs(module_id) {
+        warn!("Failed to clear configs for {module_id}: {e}");
+    }
+
+    // Delete module directory if requested
+    if delete_dir && let Err(e) = remove_dir_all(module) {
+        warn!("Failed to remove {}: {e}", module.display());
+    }
+
+    Ok(())
+}
+
+pub fn prune_modules() -> Result<()> {
+    foreach_module(All, |module| {
+        if !module.join(defs::REMOVE_FILE_NAME).exists() {
+            return Ok(());
         }
 
-        // Finally remove the module directory
-        if let Err(e) = remove_dir_all(module) {
-            warn!("Failed to remove {}: {e}", module.display());
-        }
+        info!("remove module: {}", module.display());
+        prune_single_module(module, true)?;
 
         Ok(())
     })?;

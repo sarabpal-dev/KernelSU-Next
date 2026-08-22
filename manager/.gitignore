@@ -6,5 +6,7 @@
 build
 captures
 .cxx
+*.jks
+*.keystore
 local.properties
 key.jks

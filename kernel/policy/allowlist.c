@@ -23,6 +23,7 @@
 #include "policy/allowlist.h"
 #include "manager/manager_identity.h"
 #include "infra/su_mount_ns.h"
+#include "ksu_kallsyms.h"
 
 #define FILE_MAGIC 0x7f4b5355 // ' KSU', u32
 #define FILE_FORMAT_VERSION 4 // u32
@@ -287,8 +288,7 @@ bool __ksu_is_allow_uid(uid_t uid)
 bool __ksu_is_allow_uid_for_current(uid_t uid)
 {
 	if (unlikely(uid == 0)) {
-		// already root, but only allow our domain.
-		return is_ksu_domain();
+		return true;
 	}
 	return __ksu_is_allow_uid(uid);
 }
@@ -424,7 +424,8 @@ static void do_persistent_allow_list(struct callback_head *_cb)
     loff_t off = 0;
     int i;
 
-    const struct cred *saved = override_creds(ksu_cred);
+    const struct cred *saved = ksu_syms.override_creds ?
+        ksu_syms.override_creds(ksu_cred) : NULL;
     struct file *fp =
         filp_open(KERNEL_SU_ALLOWLIST, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (IS_ERR(fp)) {
@@ -433,12 +434,13 @@ static void do_persistent_allow_list(struct callback_head *_cb)
     }
 
 	// store magic and version
-	if (kernel_write(fp, &magic, sizeof(magic), &off) != sizeof(magic)) {
+	if (!ksu_syms.kernel_write ||
+	    ksu_syms.kernel_write(fp, &magic, sizeof(magic), &off) != sizeof(magic)) {
 		pr_err("save_allow_list write magic failed.\n");
 		goto close_file;
 	}
 
-	if (kernel_write(fp, &version, sizeof(version), &off) != sizeof(version)) {
+	if (ksu_syms.kernel_write(fp, &version, sizeof(version), &off) != sizeof(version)) {
 		pr_err("save_allow_list write version failed.\n");
 		goto close_file;
 	}
@@ -448,14 +450,16 @@ static void do_persistent_allow_list(struct callback_head *_cb)
         pr_info("save allow list, name: %s uid :%d, allow: %d\n", p->profile.key, p->profile.curr_uid,
                 p->profile.allow_su);
 
-        kernel_write(fp, &p->profile, sizeof(p->profile), &off);
+        if (ksu_syms.kernel_write)
+            ksu_syms.kernel_write(fp, &p->profile, sizeof(p->profile), &off);
     }
     mutex_unlock(&allowlist_mutex);
 
 close_file:
     filp_close(fp, 0);
 out:
-    revert_creds(saved);
+    if (saved && ksu_syms.revert_creds)
+        ksu_syms.revert_creds(saved);
     kfree(_cb);
 }
 
@@ -479,7 +483,7 @@ void ksu_persistent_allow_list()
 		goto put_task;
 	}
 	cb->func = do_persistent_allow_list;
-	if (task_work_add(tsk, cb, TWA_RESUME)) {
+	if (!ksu_syms.task_work_add || ksu_syms.task_work_add(tsk, cb, TWA_RESUME)) {
 		kfree(cb);
 		pr_warn("save_allow_list add task_work failed\n");
 	}
@@ -523,8 +527,8 @@ void ksu_load_allow_list()
 	loff_t off = 0;
 	ssize_t ret = 0;
 	struct file *fp = NULL;
-	u32 magic;
-	u32 version;
+	u32 magic = 0;
+	u32 version = 0;
 	size_t app_profile_size;
 
 	// load allowlist now!
@@ -535,14 +539,15 @@ void ksu_load_allow_list()
 	}
 
 	// verify magic
-	if (kernel_read(fp, &magic, sizeof(magic), &off) != sizeof(magic) ||
+	if (!ksu_syms.kernel_read ||
+	    ksu_syms.kernel_read(fp, &magic, sizeof(magic), &off) != sizeof(magic) ||
 	    magic != FILE_MAGIC) {
 		pr_err("allowlist file invalid: %d!\n", magic);
 		goto exit;
 	}
 
 	// get file version
-	if (kernel_read(fp, &version, sizeof(version), &off) != sizeof(version)) {
+	if (ksu_syms.kernel_read(fp, &version, sizeof(version), &off) != sizeof(version)) {
 		pr_err("allowlist read version: %d failed\n", version);
 		goto exit;
 	}
@@ -560,7 +565,7 @@ void ksu_load_allow_list()
 	while (true) {
 		struct app_profile profile;
 
-		ret = kernel_read(fp, &profile, app_profile_size, &off);
+		ret = ksu_syms.kernel_read ? ksu_syms.kernel_read(fp, &profile, app_profile_size, &off) : -ENOSYS;
 
 		if (ret != app_profile_size) {
 			if (ret != 0)

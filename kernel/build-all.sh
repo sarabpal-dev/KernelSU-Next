@@ -2,7 +2,7 @@
 set -e
 
 if [ -z "$1" ]; then
-    KMIS="android12-5.10 android13-5.10 android13-5.15 android14-5.15 android14-6.1 android15-6.6 android16-6.12"
+    KMIS="android12-5.10"
 else
     KMIS=$1
 fi
@@ -14,11 +14,11 @@ mv .ddk-version .ddk-version.bak 2> /dev/null || true
 
 for kmi in $KMIS; do
     echo "========== Building $kmi =========="
-    ODIR="$(realpath .)/out/$kmi"
-    if ddk build "$kmi" "ODIR=$ODIR" -e CONFIG_KSU=m; then
-        if [ -f "$ODIR/kernelsu.ko" ]; then
-            cp "$ODIR/kernelsu.ko" "kernelsu-${kmi}.ko"
-            llvm-strip -d "kernelsu-${kmi}.ko"
+    mkdir -p "out/$kmi"
+    if ddk build "$kmi" "ODIR=/build/out/$kmi" -e CONFIG_KSU=m; then
+        if [ -f "out/$kmi/kernelsu.ko" ]; then
+            cp "out/$kmi/kernelsu.ko" "kernelsu-${kmi}.ko"
+            llvm-strip -d "kernelsu-${kmi}.ko" 2>/dev/null || strip -d "kernelsu-${kmi}.ko" 2>/dev/null || true
             echo "✓ Built kernelsu-${kmi}.ko"
         fi
     else

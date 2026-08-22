@@ -180,6 +180,11 @@ pub fn switch_mnt_ns(pid: i32) -> Result<()> {
     let path = format!("/proc/{pid}/ns/mnt");
     let fd = open(path, OFlags::RDONLY, Mode::from_raw_mode(0))?;
     let current_dir = std::env::current_dir();
+    // In multi-threaded programs (e.g. background watchdog kicker), setns(..., CLONE_NEWNS)
+    // fails with EINVAL unless the calling thread unshares CLONE_FS first.
+    unsafe {
+        libc::unshare(libc::CLONE_FS);
+    }
     move_into_link_name_space(fd.as_fd(), Some(LinkNameSpaceType::Mount))?;
     if let std::result::Result::Ok(current_dir) = current_dir {
         let _ = std::env::set_current_dir(current_dir);
@@ -234,7 +239,9 @@ pub fn install(libadbroot: Option<PathBuf>) -> Result<()> {
     ensure_dir_exists(defs::ADB_DIR)?;
     let _ = std::fs::remove_file(defs::DAEMON_PATH);
     std::fs::copy(
-        std::env::current_exe().with_context(|| "Failed to get self exe path")?,
+        // We should use /proc/self/exe, DO NOT resolve the real path
+        // So that if someone execute /data/adb/ksud install, ksud won't be removed unexpectedly
+        "/proc/self/exe",
         defs::DAEMON_PATH,
     )?;
     restorecon::lsetfilecon(defs::DAEMON_PATH, restorecon::KSU_CON)?;

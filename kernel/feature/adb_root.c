@@ -17,7 +17,7 @@
 
 #include "klog.h" // IWYU pragma: keep
 
-DEFINE_STATIC_KEY_FALSE(ksu_adb_root);
+static bool ksu_adb_root_enabled = false;
 
 static long is_exec_adbd(struct pt_regs *regs)
 {
@@ -181,7 +181,7 @@ static long do_ksu_adb_root_handle_execve(struct pt_regs *regs)
 
 long ksu_adb_root_handle_execve(struct pt_regs *regs)
 {
-    if (static_branch_unlikely(&ksu_adb_root)) {
+    if (unlikely(ksu_adb_root_enabled)) {
         return do_ksu_adb_root_handle_execve(regs);
     }
     return 0;
@@ -189,18 +189,14 @@ long ksu_adb_root_handle_execve(struct pt_regs *regs)
 
 static int kernel_adb_root_feature_get(u64 *value)
 {
-    *value = static_key_enabled(&ksu_adb_root) ? 1 : 0;
+    *value = ksu_adb_root_enabled ? 1 : 0;
     return 0;
 }
 
 static int kernel_adb_root_feature_set(u64 value)
 {
     bool enable = value != 0;
-    if (enable) {
-        static_key_enable(&ksu_adb_root.key);
-    } else {
-        static_key_disable(&ksu_adb_root.key);
-    }
+    ksu_adb_root_enabled = enable;
     pr_info("adb_root: set to %d\n", enable);
     return 0;
 }

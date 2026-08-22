@@ -7,6 +7,7 @@
 #include "klog.h"
 #include "runtime/ksud.h"
 #include "infra/seccomp_cache.h"
+#include "ksu_kallsyms.h"
 
 // sorry for the ifdef hell
 // but im too lazy to fragment this out.
@@ -65,14 +66,16 @@ static const struct ksu_feature_handler avc_spoof_handler = {
 static int get_sid()
 {
 	// dont load at all if we cant get sids
-	int err = security_secctx_to_secid("u:r:su:s0", strlen("u:r:su:s0"), &su_sid);
+	int err = ksu_syms.security_secctx_to_secid ?
+		ksu_syms.security_secctx_to_secid("u:r:su:s0", strlen("u:r:su:s0"), &su_sid) : -ENOSYS;
 	if (err) {
 		pr_info("avc_spoof/get_sid: su_sid not found!\n");
 		return -1;
 	}
 	pr_info("avc_spoof/get_sid: su_sid: %u\n", su_sid);
 
-	err = security_secctx_to_secid("u:r:priv_app:s0:c512,c768", strlen("u:r:priv_app:s0:c512,c768"), &priv_app_sid);
+	err = ksu_syms.security_secctx_to_secid ?
+		ksu_syms.security_secctx_to_secid("u:r:priv_app:s0:c512,c768", strlen("u:r:priv_app:s0:c512,c768"), &priv_app_sid) : -ENOSYS;
 	if (err) {
 		pr_info("avc_spoof/get_sid: priv_app_sid not found!\n");
 		return -1;

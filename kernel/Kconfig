@@ -43,4 +43,30 @@ config KSU_X86_PATCH_SYSCALL_DISPATCHER
 	  Dynamically patch x64's hardened syscall dispatcher to support syscall hooks. This is a
 	  replacement for a kernel source code patch, and is useful for x86_64 LKM mode.
 
+config KSU_SAMSUNG_KDP
+	bool "Samsung Kernel Data Protection (KDP) compatibility"
+	depends on KSU && ARM64
+	default y
+	help
+	  Enable support for Samsung devices with Kernel Data Protection (KDP).
+	  Resolves KDP symbols at runtime and automatically falls back to standard
+	  credential handling if KDP is not present.
+
+config KSU_SAMSUNG_RKP
+	bool "Samsung Real-time Kernel Protection (RKP) compatibility"
+	depends on KSU && ARM64
+	default y
+	help
+	  Enable support for Samsung devices with Real-time Kernel Protection (RKP).
+	  Falls back to kprobe-based syscall redirection when syscall table patching
+	  is blocked by RKP.
+
+config KSU_SAMSUNG_DEFEX
+	bool "Samsung DEFEX security LSM compatibility"
+	depends on KSU && ARM64
+	default y
+	help
+	  Enable support for Samsung devices with DEFEX security subsystem.
+	  Synchronizes DEFEX credentials and bypasses DEFEX enforcement for KSU root domain.
+
 endmenu

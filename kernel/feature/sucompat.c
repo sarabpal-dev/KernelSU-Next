@@ -25,6 +25,7 @@
 #include "sulog/event.h"
 #include "ksu.h"
 #include "util.h"
+#include "ksu_kallsyms.h"
 
 #define SU_PATH "/system/bin/su"
 #define SH_PATH "/system/bin/sh"
@@ -100,21 +101,26 @@ long ksu_handle_faccessat_sucompat(int orig_nr, struct pt_regs *regs)
 
 	char path[sizeof(su_path) + 1];
 	memset(path, 0, sizeof(path));
-	strncpy_from_user_nofault(path, *filename_user, sizeof(path));
+	if (ksu_syms.strncpy_from_user_nofault)
+		ksu_syms.strncpy_from_user_nofault(path, *filename_user, sizeof(path));
+	else
+		strncpy_from_user(path, *filename_user, sizeof(path));
 
 	if (unlikely(!memcmp(path, su_path, sizeof(su_path)))) {
-		old_cred = override_creds(ksu_cred);
+		old_cred = ksu_syms.override_creds ? ksu_syms.override_creds(ksu_cred) : NULL;
 		if (is_ksud_exists()) {
 			ksu_compat_sulog('a');
 			pr_info("faccessat su->ksud!\n");
 			orig_filename = *filename_user;
 			*filename_user = ksud_user_path();
 			ret = ksu_syscall_table[orig_nr](regs);
-			revert_creds(old_cred);
+			if (old_cred && ksu_syms.revert_creds)
+				ksu_syms.revert_creds(old_cred);
 			*filename_user = orig_filename;
 			return ret;
 		} else {
-			revert_creds(old_cred);
+			if (old_cred && ksu_syms.revert_creds)
+				ksu_syms.revert_creds(old_cred);
 		}
 	}
 
@@ -136,21 +142,26 @@ long ksu_handle_stat_sucompat(int orig_nr, struct pt_regs *regs)
 
 	char path[sizeof(su_path) + 1];
 	memset(path, 0, sizeof(path));
-	strncpy_from_user_nofault(path, *filename_user, sizeof(path));
+	if (ksu_syms.strncpy_from_user_nofault)
+		ksu_syms.strncpy_from_user_nofault(path, *filename_user, sizeof(path));
+	else
+		strncpy_from_user(path, *filename_user, sizeof(path));
 
 	if (unlikely(!memcmp(path, su_path, sizeof(su_path)))) {
-		old_cred = override_creds(ksu_cred);
+		old_cred = ksu_syms.override_creds ? ksu_syms.override_creds(ksu_cred) : NULL;
 		if (is_ksud_exists()) {
 			ksu_compat_sulog('s');
 			pr_info("newfstatat su->ksud!\n");
 			orig_filename = *filename_user;
 			*filename_user = ksud_user_path();
 			ret = ksu_syscall_table[orig_nr](regs);
-			revert_creds(old_cred);
+			if (old_cred && ksu_syms.revert_creds)
+				ksu_syms.revert_creds(old_cred);
 			*filename_user = orig_filename;
 			return ret;
 		} else {
-			revert_creds(old_cred);
+			if (old_cred && ksu_syms.revert_creds)
+				ksu_syms.revert_creds(old_cred);
 		}
 	}
 
@@ -198,9 +209,10 @@ long ksu_handle_execve_sucompat(const char __user **filename_user, int orig_nr, 
 		goto do_orig_execve;
 	}
 
-	old_cred = override_creds(ksu_cred);
+	old_cred = ksu_syms.override_creds ? ksu_syms.override_creds(ksu_cred) : NULL;
 	ksud_file = filp_open(KSUD_PATH, O_PATH, 0);
-	revert_creds(old_cred);
+	if (old_cred && ksu_syms.revert_creds)
+		ksu_syms.revert_creds(old_cred);
 	if (IS_ERR(ksud_file)) {
 		pr_err("open ksud err: %ld\n", PTR_ERR(ksud_file));
 		put_unused_fd(tmp_fd);
@@ -252,7 +264,7 @@ void __init ksu_sucompat_init()
 	}
 }
 
-void __exit ksu_sucompat_exit()
+void ksu_sucompat_exit()
 {
 	ksu_unregister_feature_handler(KSU_FEATURE_SU_COMPAT);
 }

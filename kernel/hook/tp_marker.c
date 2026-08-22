@@ -7,8 +7,10 @@
 #include <linux/sched/task.h>
 
 #include "policy/allowlist.h"
+#include "ksu_samsung_kdp.h"
 #include "klog.h" // IWYU pragma: keep
 #include "selinux/selinux.h"
+#include "ksu_kallsyms.h"
 
 // Tracepoint registration count management
 // == 1: just us
@@ -87,7 +89,7 @@ void ksu_mark_running_process_locked(void)
             continue;
         }
         int uid = task_uid(t).val;
-        const struct cred *cred = get_task_cred(t);
+        const struct cred *cred = ksu_get_task_cred(t);
         bool ksu_root_process = uid == 0 && is_task_ksu_domain(cred);
         bool is_zygote_process = is_zygote(cred);
         bool is_shell = uid == 2000;
@@ -103,7 +105,7 @@ void ksu_mark_running_process_locked(void)
             pr_info("tp_marker: unmark process: pid:%d, uid: %d, comm:%s\n",
                     t->pid, uid, t->comm);
         }
-        put_cred(cred);
+        ksu_put_cred(cred);
     }
     read_unlock(&tasklist_lock);
 }

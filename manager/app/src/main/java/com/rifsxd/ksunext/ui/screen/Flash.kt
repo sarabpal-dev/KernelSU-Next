@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.os.Parcelable
+import com.rifsxd.ksunext.Natives
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -239,17 +240,19 @@ fun FlashScreen(
         },
         floatingActionButton = {
             if (flashIt is FlashIt.FlashModules && (flashing == FlashingStatus.SUCCESS)) {
+                val isLateLoad = Natives.isLateLoadMode
+                val rebootRes = if (isLateLoad) R.string.reboot_userspace else R.string.reboot
                 // Reboot button for modules flashing
                 ExtendedFloatingActionButton(
                     onClick = {
                         scope.launch {
                             withContext(Dispatchers.IO) {
-                                reboot()
+                                reboot("soft-reboot")
                             }
                         }
                     },
-                    icon = { Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.reboot)) },
-                    text = { Text(text = stringResource(R.string.reboot)) }
+                    icon = { Icon(Icons.Filled.Refresh, contentDescription = stringResource(rebootRes)) },
+                    text = { Text(text = stringResource(rebootRes)) }
                 )
             }
 

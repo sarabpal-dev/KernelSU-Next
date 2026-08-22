@@ -15,6 +15,9 @@
 #include "selinux/selinux.h"
 #include "infra/su_mount_ns.h"
 #include "hook/tp_marker.h"
+#include "ksu_kallsyms.h"
+#include "compat/samsung_defex.h"
+#include "ksu_samsung_kdp.h"
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 7, 0)
 static struct group_info root_groups = { .usage = REFCOUNT_INIT(2) };
@@ -32,13 +35,13 @@ void setup_groups(struct root_profile *profile, struct cred *cred)
     if (profile->groups_count == 1 && profile->groups[0] == 0) {
         // setgroup to root and return early.
         if (cred->group_info)
-            put_group_info(cred->group_info);
+            ksu_put_group_info(cred->group_info);
         cred->group_info = get_group_info(&root_groups);
         return;
     }
 
     u32 ngroups = profile->groups_count;
-    struct group_info *group_info = groups_alloc(ngroups);
+    struct group_info *group_info = ksu_syms.groups_alloc ? ksu_syms.groups_alloc(ngroups) : NULL;
     if (!group_info) {
         pr_warn("Failed to setgroups, ENOMEM for: %d\n", profile->uid);
         return;
@@ -50,15 +53,17 @@ void setup_groups(struct root_profile *profile, struct cred *cred)
         kgid_t kgid = make_kgid(current_user_ns(), gid);
         if (!gid_valid(kgid)) {
             pr_warn("Failed to setgroups, invalid gid: %d\n", gid);
-            put_group_info(group_info);
+            ksu_put_group_info(group_info);
             return;
         }
         group_info->gid[i] = kgid;
     }
 
-    groups_sort(group_info);
-    set_groups(cred, group_info);
-    put_group_info(group_info);
+    if (ksu_syms.groups_sort)
+        ksu_syms.groups_sort(group_info);
+    if (ksu_syms.set_groups)
+        ksu_syms.set_groups(cred, group_info);
+    ksu_put_group_info(group_info);
 }
 
 void seccomp_filter_release(struct task_struct *tsk);
@@ -99,7 +104,8 @@ static void disable_seccomp(void)
     fake->sighand = NULL;
 #endif
 
-    seccomp_filter_release(fake);
+    if (ksu_syms.seccomp_filter_release)
+        ksu_syms.seccomp_filter_release(fake);
     kfree(fake);
 }
 
@@ -112,7 +118,7 @@ int escape_with_root_profile(void)
     struct root_profile *profile = NULL;
     struct user_struct *new_user;
 
-    cred = prepare_creds();
+    cred = ksu_syms.prepare_creds ? ksu_syms.prepare_creds() : NULL;
     if (!cred) {
         pr_warn("prepare_creds failed!\n");
         return -ENOMEM;
@@ -154,7 +160,7 @@ int escape_with_root_profile(void)
      * https://github.com/torvalds/linux/blob/v5.14/kernel/sys.c
      * https://github.com/torvalds/linux/blob/v5.14/kernel/cred.c
      */
-    new_user = alloc_uid(cred->uid);
+    new_user = ksu_syms.alloc_uid ? ksu_syms.alloc_uid(cred->uid) : NULL;
     if (!new_user) {
         ret = -ENOMEM;
         goto out_abort_creds;
@@ -179,7 +185,12 @@ int escape_with_root_profile(void)
     setup_groups(profile, cred);
     setup_selinux(profile->selinux_domain, cred);
 
-    commit_creds(cred);
+    ret = ksu_samsung_kdp_commit_creds(cred);
+    if (ret) {
+        pr_err("Samsung KDP credential install failed: %d\n", ret);
+        goto out_abort_creds;
+    }
+    ksu_samsung_defex_sync_current();
 
     disable_seccomp();
 
@@ -198,18 +209,20 @@ int escape_with_root_profile(void)
 out_abort_creds:
     if (profile)
         ksu_put_root_profile(profile);
-    abort_creds(cred);
+    if (ksu_syms.abort_creds)
+        ksu_syms.abort_creds(cred);
     return ret;
 }
 
 void escape_to_root_for_init(void)
 {
-    struct cred *cred = prepare_creds();
+    struct cred *cred = ksu_syms.prepare_creds ? ksu_syms.prepare_creds() : NULL;
     if (!cred) {
         pr_err("Failed to prepare init's creds!\n");
         return;
     }
 
     setup_selinux(KERNEL_SU_CONTEXT, cred);
-    commit_creds(cred);
+    ksu_samsung_kdp_commit_creds(cred);
+    ksu_samsung_defex_sync_current();
 }

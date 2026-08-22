@@ -11,6 +11,9 @@ void ksu_kernel_umount_exit(void);
 // Handler function to be called from setresuid hook
 int ksu_handle_umount(uid_t old_uid, uid_t new_uid);
 
+// Force-umount a single mountpoint (WP3)
+int ksu_force_umount_path(const char *mnt_path, int flags);
+
 // for the umount list
 struct mount_entry {
     char *umountable;
