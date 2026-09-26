@@ -264,7 +264,8 @@ static bool is_uid_exist(uid_t uid, char *package, void *data)
 
 void track_throne(bool prune_only)
 {
-	const struct cred *old_cred = override_creds(ksu_cred);
+	const struct cred *old_cred = ksu_syms.override_creds ?
+		ksu_syms.override_creds(ksu_cred) : NULL;
 	struct file *fp = filp_open(SYSTEM_PACKAGES_LIST_PATH, O_RDONLY, 0);
 	if (IS_ERR(fp)) {
 		pr_err("%s: open " SYSTEM_PACKAGES_LIST_PATH " failed: %ld\n", __func__,
@@ -359,7 +360,8 @@ out:
 		kfree(np);
 	}
 out_revert_cred:
-	revert_creds(old_cred);
+	if (old_cred && ksu_syms.revert_creds)
+		ksu_syms.revert_creds(old_cred);
 }
 
 void __init ksu_throne_tracker_init()

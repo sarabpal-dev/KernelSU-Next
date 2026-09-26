@@ -9,6 +9,8 @@
 #include <linux/err.h>
 #include <linux/cred.h>
 
+#include "ksu_kallsyms.h"
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
 #define ksu_close_fd close_fd
 #else
@@ -28,7 +30,12 @@ static inline struct file *ksu_filp_open_nonotify(const char *path, int flags)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 14, 0)
     f = dentry_open_nonotify(&p, flags, current_cred());
 #else
-    f = dentry_open(&p, flags | __FMODE_NONOTIFY, current_cred());
+    if (ksu_syms.dentry_open) {
+        f = ksu_syms.dentry_open(&p, flags | __FMODE_NONOTIFY, current_cred());
+    } else {
+        path_put(&p);
+        return filp_open(path, flags, 0);
+    }
 #endif
 
     path_put(&p);

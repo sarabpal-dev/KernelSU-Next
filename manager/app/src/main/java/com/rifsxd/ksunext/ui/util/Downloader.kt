@@ -65,7 +65,7 @@ fun download(
 
 fun checkNewVersion(preferSpoofed: Boolean? = null): LatestVersionInfo {
     // Next version updates
-    val url = "https://api.github.com/repos/KernelSU-Next/KernelSU-Next/releases/latest"
+    val url = "https://api.github.com/repos/sarabpal-dev/KernelSU-Next/releases/latest"
     // default null value if failed
     val defaultValue = LatestVersionInfo()
     runCatching {

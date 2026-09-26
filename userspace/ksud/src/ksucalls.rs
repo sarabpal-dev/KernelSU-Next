@@ -392,7 +392,7 @@ pub fn set_ksu_no_new_privs() -> anyhow::Result<()> {
 
 /// Reset kernel boot state flags (ksu_boot_completed, ksu_module_mounted)
 pub fn reset_boot_state() -> std::io::Result<()> {
-    ksuctl(
+    ksuctl_raw(
         ksu_uapi::KSU_IOCTL_RESET_BOOT_STATE,
         std::ptr::null_mut::<u8>(),
     )?;
@@ -413,7 +413,7 @@ pub fn force_umount(path: &str, flags: u32) -> anyhow::Result<i32> {
 
 /// Disarm reboot guard for one reboot cycle
 pub fn real_reboot_once() -> std::io::Result<()> {
-    ksuctl(
+    ksuctl_raw(
         ksu_uapi::KSU_IOCTL_REAL_REBOOT_ONCE,
         std::ptr::null_mut::<u8>(),
     )?;
