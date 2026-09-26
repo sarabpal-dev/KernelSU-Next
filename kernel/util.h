@@ -1,6 +1,8 @@
 #ifndef __KSU_UTIL_H
 #define __KSU_UTIL_H
 
+#include "include/util.h"
+
 #include <linux/types.h>
 #include <linux/version.h>
 #include <linux/syscalls.h>
