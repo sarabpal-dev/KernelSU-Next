@@ -68,7 +68,7 @@ void apply_kernelsu_rules()
     mutex_lock(&selinux_state.policy_mutex);
     old_pol = rcu_dereference_protected(selinux_state.policy, lockdep_is_held(&selinux_state.policy_mutex));
     if (!old_pol) {
-        pr_info("SELinux policy not loaded yet, skipping rule application\n");
+        pr_warn("SELinux policy is NULL or not loaded yet. Skipping SELinux rules application.\n");
         mutex_unlock(&selinux_state.policy_mutex);
         return;
     }
@@ -499,7 +499,7 @@ int handle_sepolicy(void __user *user_data, u64 data_len)
     old_pol = rcu_dereference_protected(
         selinux_state.policy, lockdep_is_held(&selinux_state.policy_mutex));
     if (!old_pol) {
-        pr_err("SELinux policy not loaded yet\n");
+        pr_warn("SELinux policy is NULL or not loaded yet. Skipping ksu_handle_sepolicy.\n");
         ret = -EINVAL;
         goto out_unlock;
     }

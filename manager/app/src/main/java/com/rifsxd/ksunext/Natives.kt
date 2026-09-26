@@ -46,6 +46,9 @@ object Natives {
     val isLkmMode: Boolean
         external get
 
+    val isLkmBundled: Boolean
+        external get
+
     val isLateLoadMode: Boolean
         external get
 
@@ -88,7 +91,7 @@ object Natives {
      */
     external fun getAppProfile(key: String?, uid: Int): Profile
     external fun setAppProfile(profile: Profile?): Boolean
-
+     
     /**
      * `su` compat mode can be disabled temporarily.
      *  0: disabled
@@ -130,6 +133,7 @@ object Natives {
      */
     external fun getUserName(uid: Int): String?
 
+
     /**
      * Avc spoof can be enabled/disabled.
      *  0: disabled
@@ -141,6 +145,7 @@ object Natives {
 
     external fun getSuperuserCount(): Int
 
+    private const val KSU_GET_INFO_FLAG_MANAGER = 1 shl 1
     private const val NON_ROOT_DEFAULT_PROFILE_KEY = "$"
     private const val NOBODY_UID = 9999
 
@@ -160,19 +165,15 @@ object Natives {
             return it.umountModules
         }
     }
-
+    
     val kernelUAPIVersion: Int
         external get
 
     val managerUAPIVersion: Int
         external get
 
-    fun checkUAPIMismatch(): Boolean {
-        return kernelUAPIVersion != managerUAPIVersion
-    }
-
-    fun requireNewKernel(): Boolean {
-        return (version != -1 && version < MINIMAL_SUPPORTED_KERNEL) || checkUAPIMismatch()
+    fun isFullFeatured(): Boolean {
+        return isManager && kernelUAPIVersion == managerUAPIVersion && com.rifsxd.ksunext.ui.util.rootAvailable()
     }
 
     val KSU_WORK_DIR = "/data/adb/ksu/"

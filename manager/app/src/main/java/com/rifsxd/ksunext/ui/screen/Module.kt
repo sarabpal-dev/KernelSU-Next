@@ -147,6 +147,12 @@ fun ModuleScreen(navigator: DestinationsNavigator) {
 
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
 
+        // auto-detect: an AnyKernel3 zip picked here flashes as a kernel
+        if (uris.size == 1 && ZipUtils.isAnyKernel3Zip(context, uris.first())) {
+            navigator.navigate(FlashScreenDestination(FlashIt.FlashAnyKernel(uris.first())))
+            return@rememberLauncherForActivityResult
+        }
+
         viewModel.updateZipUris(uris)
 
         navigator.navigate(FlashScreenDestination(FlashIt.FlashModules(uris)))

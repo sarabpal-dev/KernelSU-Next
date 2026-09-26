@@ -258,7 +258,7 @@
   <string name="module_sort_stars_low_to_high">Sırala (Düşük → Yüksek)</string>
   <string name="module_sort_stars_high_to_low">Sırala (Yüksek → Düşük)</string>
   <string name="settings_adb_root">ADB Root</string>
-  <string name="settings_adb_root_summary">Run adbd daemon with root privileges</string>
+  <string name="settings_adb_root_summary">Adbd daemon\'ını root yetkileriyle çalıştırın</string>
   <string name="settings_selinux_hide">SELinux değişikliklerini gizle</string>
   <string name="settings_selinux_hide_summary">Uygulamaların SELinux değişikliklerini algılamasını engelle</string>
   <string name="settings_selinux_hide_reboot_required">Değişikliklerin yürürlüğe girmesi için yeniden başlatın</string>
@@ -271,7 +271,7 @@
   <string name="expand">Genişlet</string>
   <string name="feature_status_unsupported_summary">Çekirdek bu özelliği desteklemiyor</string>
   <string name="feature_status_managed_summary">Bu özellik zaten bir modül tarafından yönetiliyor</string>
-  <string name="sulog_log_files">Log files</string>
+  <string name="sulog_log_files">Günlük dosyaları</string>
   <string name="sulog_failed_to_load">Sulog yüklenemedi</string>
   <string name="sulog_disabled_title">SU Günlüğü etkinleştirilmedi</string>
   <string name="sulog_unsupported_title">SU Günlüğü desteklenmiyor</string>
@@ -288,14 +288,14 @@
   <string name="sulog_entry_description_ioctl_grant_root">KernelSU ioctl aracılığıyla kök erişimi verildi</string>
   <string name="sulog_entry_title_daemon_restarted">Daemon yeniden başlatıldı</string>
   <string name="sulog_entry_title_dropped_events">İptal edilen etkinlikler</string>
-  <string name="uapi_mismatch">Manager uapi version (%1$d) and KernelSU driver uapi version (%2$d) mismatch.</string>
-  <string name="require_manager_version">The current KernelSU manager version %1$d is too low for KernelSU to work properly. Please upgrade manager to version %2$d or higher!</string>
+  <string name="require_manager_version">Mevcut KernelSU-Next yöneticisi sürümü 
+%1$d, KernelSU-Next\'in düzgün çalışması için çok eski. Lütfen yöneticiyi %2$d veya daha yeni bir sürüme yükseltin!</string>
   <string name="profile_flags">Flags</string>
-  <string name="profile_flags_desc_no_new_privs">Prevent further privilege escalation via KernelSU from within the context of this root profile.</string>
-  <string name="settings_sulog">SU Log</string>
-  <string name="settings_sulog_summary">Record root requests into KernelSU sulog files.</string>
-  <string name="home_working_version">Version: %1$s (%2$s)</string>
-  <string name="sulog_no_log_entries">No log entries</string>
+  <string name="profile_flags_desc_no_new_privs">Bu root profili üzerinden KernelSU kullanılarak daha fazla yetki alınmasını engelle.</string>
+  <string name="settings_sulog">SU Günlüğü</string>
+  <string name="settings_sulog_summary">Root isteklerini KernelSU sulog dosyalarına kaydet.</string>
+  <string name="home_working_version">Sürüm: %1$s (%2$s)</string>
+  <string name="sulog_no_log_entries">Günlük kaydı yok</string>
   <string name="sulog_dropped">Dropped</string>
   <string name="sulog_unknown">Unknown</string>
   <string name="sulog_boot_id">Boot ID: %1$s</string>
@@ -307,4 +307,9 @@
   <string name="sulog_uid">UID %1$s</string>
   <string name="sulog_status_success">Success</string>
   <string name="sulog_status_exit">Exit %1$d</string>
+  <string name="home_lkm_update_available">Yeni bir LKM sürümü mevcut. Güncellemek için dokunun.</string>
+  <string name="home_lkm_custom">Custom</string>
+  <string name="require_kernel_version_gki">Çekirdek güncellemesi gerekli</string>
+  <string name="select_language">Dil seçin</string>
+  <string name="export_log_unrooted">Export logs (non-root)</string>
 </resources>

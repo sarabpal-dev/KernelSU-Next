@@ -35,7 +35,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.activity.viewModels
 import androidx.navigation.NavBackStackEntry
@@ -62,6 +64,7 @@ import com.ramcosta.composedestinations.generated.destinations.SettingScreenDest
 import com.ramcosta.composedestinations.utils.isRouteOnBackStackAsState
 import com.ramcosta.composedestinations.utils.rememberDestinationsNavigator
 import com.rifsxd.ksunext.Natives
+import com.rifsxd.ksunext.R
 import com.rifsxd.ksunext.ksuApp
 import com.rifsxd.ksunext.ui.screen.BottomBarDestination
 import com.rifsxd.ksunext.ui.screen.FlashIt
@@ -241,242 +244,293 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             KernelSUTheme(amoledMode = amoledModeState.value) {
-                val navController = rememberNavController()
-                val snackBarHostState = remember { SnackbarHostState() }
-                val currentDestination = navController.currentBackStackEntryAsState().value?.destination
-                val bottomBarRoutes = remember {
-                    BottomBarDestination.entries.map { it.direction.route }.toSet()
-                }
-                val navigator = navController.rememberDestinationsNavigator()
+                var showSplash by remember { mutableStateOf(true) }
+                var splashRotationTarget by remember { mutableStateOf(0f) }
+                val splashRotation by animateFloatAsState(
+                    targetValue = splashRotationTarget,
+                    animationSpec = tween(
+                        durationMillis = 1400,
+                        easing = FastOutSlowInEasing
+                    ),
+                    finishedListener = {
+                        showSplash = false
+                    },
+                    label = "splashRotation"
+                )
 
-                val isManager = Natives.isManager
-                val fullFeatured = isManager && !Natives.requireNewKernel() && rootAvailable()
-
-                val currentBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentRoute = currentBackStackEntry?.destination?.route
-
-                val homeDestination = BottomBarDestination.entries.firstOrNull()
-                val startRoute = homeDestination?.direction?.route
-
-                if (homeDestination != null && startRoute != null) {
-                    BackHandler(enabled = currentRoute != startRoute && currentRoute in bottomBarRoutes) {
-                        navigator.navigate(homeDestination.direction) {
-                            popUpTo(NavGraphs.root) {
-                                saveState = true
-                            }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
-                    }
+                LaunchedEffect(Unit) {
+                    splashRotationTarget += 360f * 6
                 }
 
-                // Track the last bottom bar destination index for directional animations
-                var lastBottomBarIndex by remember { mutableStateOf(0) }
-                var isBottomBarNavigation by remember { mutableStateOf(false) }
-                
-                // Scroll state for bottom bar visibility
-                val isScrollingDown = remember { mutableStateOf(false) }
-                val scrollOffset = remember { mutableStateOf(0f) }
-                val previousScrollOffset = remember { mutableStateOf(0f) }
-                
-                // Remember the last valid navbar selection (persists across navbar hide/show)
-                val lastValidNavbarSelection = remember { mutableStateOf(0) }
-
-                LaunchedEffect(zipUri, navigateLoc, moduleActionId) {
-                    if (moduleActionId != null) {
-                        navigator.navigate(ExecuteModuleActionScreenDestination(moduleActionId!!))
-                        moduleActionId = null
-                    }
-
-                    if (!zipUri.isNullOrEmpty()) {
-                        val uris = zipUri!!
-                        val component = intent?.component?.className
-                        val flashIt = when {
-                            component?.endsWith("FlashAnyKernel") == true -> FlashIt.FlashAnyKernel(uris.first())
-                            else -> FlashIt.FlashModules(uris)
-                        }
-                        
-                        navigator.navigate(
-                            FlashScreenDestination(flashIt = flashIt)
-                        )
-                        zipUri = null
-                    }
-
-                    if (zipUri.isNullOrEmpty() && navigateLoc != null) {
-                        when (navigateLoc) {
-                            NavigateLocation.SUPERUSER -> navigator.navigate(SuperUserScreenDestination) {
-                                    popUpTo(NavGraphs.root.startRoute) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            NavigateLocation.MODULES -> navigator.navigate(ModuleScreenDestination) {
-                                    popUpTo(NavGraphs.root.startRoute) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            NavigateLocation.SETTINGS -> navigator.navigate(SettingScreenDestination) {
-                                    popUpTo(NavGraphs.root.startRoute) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            else -> { /* no-op for exhaustiveness */ }
-                        }
-                        navigateLoc = null
-                    }
-                }
-
-                val showBottomBar = when (currentDestination?.route) {
-                    FlashScreenDestination.route -> false // Hide for FlashScreenDestination
-                    ExecuteModuleActionScreenDestination.route -> false // Hide for ExecuteModuleActionScreen
-                    else -> !isScrollingDown.value
-                }
-
-                Scaffold(
-                    contentWindowInsets = WindowInsets(0, 0, 0, 0)
-                ) { innerPadding ->
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        CompositionLocalProvider(
-                            LocalSnackbarHost provides snackBarHostState,
-                            LocalScrollState provides ScrollState(
-                                isScrollingDown = isScrollingDown,
-                                scrollOffset = scrollOffset,
-                                previousScrollOffset = previousScrollOffset
-                            )
+                AnimatedContent(
+                    targetState = showSplash,
+                    transitionSpec = {
+                        fadeIn(animationSpec = tween(180)) togetherWith fadeOut(animationSpec = tween(180))
+                    },
+                    label = "appSplashTransition"
+                ) { isSplashVisible ->
+                    if (isSplashVisible) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+                            contentAlignment = Alignment.Center
                         ) {
-                            val visibleDestinations = remember(fullFeatured) {
-                                BottomBarDestination.entries.filter { fullFeatured || !it.rootRequired }
-                            }
-
-                            fun navigateToIndex(index: Int) {
-                                val destination = visibleDestinations.getOrNull(index) ?: return
-                                if (destination.direction.route == currentRoute) return
-
-                                navigator.navigate(destination.direction) {
-                                    popUpTo(NavGraphs.root.startRoute) {
-                                        saveState = true
-                                    }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            }
-
-                            val hostModifier = Modifier
-                                .padding(innerPadding)
-                                .fillMaxSize()
-                                .horizontalSwipeNavigator(
-                                    currentRoute = currentRoute,
-                                    destinations = visibleDestinations,
-                                    onNavigate = { navigateToIndex(it) }
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_ksu_next),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .size(120.dp)
+                                        .graphicsLayer { rotationZ = splashRotation }
                                 )
-
-                            DestinationsNavHost(
-                                modifier = hostModifier,
-                                navGraph = NavGraphs.root,
-                                navController = navController,
-                                defaultTransitions = object : NavHostAnimatedDestinationStyle() {
-                                    override val enterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
-                                        val targetRoute = targetState.destination.route
-                                        val initialRoute = initialState.destination.route
-
-                                        val targetIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == targetRoute }
-                                        val initialIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == initialRoute }
-
-                                        when {
-                                            // Bottom bar → bottom bar: slide based on index direction
-                                            targetIndex != -1 && initialIndex != -1 -> {
-                                                val offsetSign = if (targetIndex > initialIndex) 1 else -1
-                                                slideInHorizontally(initialOffsetX = { it * offsetSign }, animationSpec = tween(300))
-                                            }
-                                            // Detail page → bottom bar: slide in from left
-                                            targetRoute in bottomBarRoutes && initialRoute !in bottomBarRoutes -> {
-                                                slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(300))
-                                            }
-                                            // Bottom bar → detail page: slide in from right
-                                            else -> slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(300))
-                                        }
-                                    }
-
-                                    override val exitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
-                                        val targetRoute = targetState.destination.route
-                                        val initialRoute = initialState.destination.route
-
-                                        val targetIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == targetRoute }
-                                        val initialIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == initialRoute }
-
-                                        when {
-                                            // Bottom bar → bottom bar: slide out opposite direction
-                                            targetIndex != -1 && initialIndex != -1 -> {
-                                                val offsetSign = if (targetIndex > initialIndex) -1 else 1
-                                                slideOutHorizontally(targetOffsetX = { it * offsetSign }, animationSpec = tween(300))
-                                            }
-                                            // Bottom bar → detail page: slide out to left
-                                            initialRoute in bottomBarRoutes && targetRoute !in bottomBarRoutes -> {
-                                                slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(300))
-                                            }
-                                            // Default
-                                            else -> slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(300))
-                                        }
-                                    }
-
-                                    override val popEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
-                                        val targetRoute = targetState.destination.route
-                                        val initialRoute = initialState.destination.route
-
-                                        val targetIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == targetRoute }
-                                        val initialIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == initialRoute }
-
-                                        when {
-                                            // Bottom bar → bottom bar pop: mirror of exit
-                                            targetIndex != -1 && initialIndex != -1 -> {
-                                                val offsetSign = if (targetIndex > initialIndex) 1 else -1
-                                                slideInHorizontally(initialOffsetX = { it * offsetSign }, animationSpec = tween(300))
-                                            }
-                                            // Returning from detail → bottom bar: slide in from left
-                                            targetRoute in bottomBarRoutes -> {
-                                                slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(300))
-                                            }
-                                            else -> slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(300))
-                                        }
-                                    }
-
-                                    override val popExitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
-                                        val targetRoute = targetState.destination.route
-                                        val initialRoute = initialState.destination.route
-
-                                        val targetIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == targetRoute }
-                                        val initialIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == initialRoute }
-
-                                        when {
-                                            // Bottom bar → bottom bar pop
-                                            targetIndex != -1 && initialIndex != -1 -> {
-                                                val offsetSign = if (targetIndex > initialIndex) -1 else 1
-                                                slideOutHorizontally(targetOffsetX = { it * offsetSign }, animationSpec = tween(300))
-                                            }
-                                            // Detail page closing: slide out to right
-                                            initialRoute !in bottomBarRoutes -> {
-                                                slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(300))
-                                            }
-                                            else -> slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(300))
-                                        }
-                                    }
-                                }
-                            )
+                            }
                         }
-                        
-                        // Floating Bottom Bar as overlay
-                        AnimatedVisibility(
-                            visible = showBottomBar,
-                            modifier = Modifier.align(Alignment.BottomCenter),
-                            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
-                        ) {
-                            BottomBar(navController, lastValidNavbarSelection)
+                    } else {
+                        val navController = rememberNavController()
+                        val snackBarHostState = remember { SnackbarHostState() }
+                        val currentDestination = navController.currentBackStackEntryAsState().value?.destination
+                        val bottomBarRoutes = remember {
+                            BottomBarDestination.entries.map { it.direction.route }.toSet()
+                        }
+                        val navigator = navController.rememberDestinationsNavigator()
+
+                        val isManager = Natives.isManager
+                        val fullFeatured = Natives.isFullFeatured()
+
+                        val currentBackStackEntry by navController.currentBackStackEntryAsState()
+                        val currentRoute = currentBackStackEntry?.destination?.route
+
+                        val homeDestination = BottomBarDestination.entries.firstOrNull()
+                        val startRoute = homeDestination?.direction?.route
+
+                        if (homeDestination != null && startRoute != null) {
+                            BackHandler(enabled = currentRoute != startRoute && currentRoute in bottomBarRoutes) {
+                                navigator.navigate(homeDestination.direction) {
+                                    popUpTo(NavGraphs.root) {
+                                        saveState = true
+                                    }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        }
+
+                        // Track the last bottom bar destination index for directional animations
+                        var lastBottomBarIndex by remember { mutableStateOf(0) }
+                        var isBottomBarNavigation by remember { mutableStateOf(false) }
+
+                        // Scroll state for bottom bar visibility
+                        val isScrollingDown = remember { mutableStateOf(false) }
+                        val scrollOffset = remember { mutableStateOf(0f) }
+                        val previousScrollOffset = remember { mutableStateOf(0f) }
+
+                        // Remember the last valid navbar selection (persists across navbar hide/show)
+                        val lastValidNavbarSelection = remember { mutableStateOf(0) }
+
+                        LaunchedEffect(zipUri, navigateLoc, moduleActionId) {
+                            if (moduleActionId != null) {
+                                navigator.navigate(ExecuteModuleActionScreenDestination(moduleActionId!!))
+                                moduleActionId = null
+                            }
+
+                            if (!zipUri.isNullOrEmpty()) {
+                                val uris = zipUri!!
+                                val component = intent?.component?.className
+                                val flashIt = when {
+                                    // explicit legacy entry point
+                                    component?.endsWith("FlashAnyKernel") == true -> FlashIt.FlashAnyKernel(uris.first())
+                                    // auto-detect: single AnyKernel3 zip flashes as kernel, anything else as module(s)
+                                    uris.size == 1 && ZipUtils.isAnyKernel3Zip(applicationContext, uris.first()) ->
+                                        FlashIt.FlashAnyKernel(uris.first())
+                                    else -> FlashIt.FlashModules(uris)
+                                }
+
+                                navigator.navigate(
+                                    FlashScreenDestination(flashIt = flashIt)
+                                )
+                                zipUri = null
+                            }
+
+                            if (zipUri.isNullOrEmpty() && navigateLoc != null) {
+                                when (navigateLoc) {
+                                    NavigateLocation.SUPERUSER -> navigator.navigate(SuperUserScreenDestination) {
+                                        popUpTo(NavGraphs.root.startRoute) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                    NavigateLocation.MODULES -> navigator.navigate(ModuleScreenDestination) {
+                                        popUpTo(NavGraphs.root.startRoute) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                    NavigateLocation.SETTINGS -> navigator.navigate(SettingScreenDestination) {
+                                        popUpTo(NavGraphs.root.startRoute) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                    else -> { /* no-op for exhaustiveness */ }
+                                }
+                                navigateLoc = null
+                            }
+                        }
+
+                        val showBottomBar = when (currentDestination?.route) {
+                            FlashScreenDestination.route -> false // Hide for FlashScreenDestination
+                            ExecuteModuleActionScreenDestination.route -> false // Hide for ExecuteModuleActionScreen
+                            else -> !isScrollingDown.value
+                        }
+
+                        Scaffold(
+                            contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                        ) { innerPadding ->
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                CompositionLocalProvider(
+                                    LocalSnackbarHost provides snackBarHostState,
+                                    LocalScrollState provides ScrollState(
+                                        isScrollingDown = isScrollingDown,
+                                        scrollOffset = scrollOffset,
+                                        previousScrollOffset = previousScrollOffset
+                                    )
+                                ) {
+                                    val visibleDestinations = remember(fullFeatured) {
+                                        BottomBarDestination.entries.filter { fullFeatured || !it.rootRequired }
+                                    }
+
+                                    fun navigateToIndex(index: Int) {
+                                        val destination = visibleDestinations.getOrNull(index) ?: return
+                                        if (destination.direction.route == currentRoute) return
+
+                                        navigator.navigate(destination.direction) {
+                                            popUpTo(NavGraphs.root.startRoute) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    }
+
+                                    val hostModifier = Modifier
+                                        .padding(innerPadding)
+                                        .fillMaxSize()
+                                        .horizontalSwipeNavigator(
+                                            currentRoute = currentRoute,
+                                            destinations = visibleDestinations,
+                                            onNavigate = { navigateToIndex(it) }
+                                        )
+
+                                    DestinationsNavHost(
+                                        modifier = hostModifier,
+                                        navGraph = NavGraphs.root,
+                                        navController = navController,
+                                        defaultTransitions = object : NavHostAnimatedDestinationStyle() {
+                                            override val enterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
+                                                val targetRoute = targetState.destination.route
+                                                val initialRoute = initialState.destination.route
+
+                                                val targetIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == targetRoute }
+                                                val initialIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == initialRoute }
+
+                                                when {
+                                                    // Bottom bar → bottom bar: slide based on index direction
+                                                    targetIndex != -1 && initialIndex != -1 -> {
+                                                        val offsetSign = if (targetIndex > initialIndex) 1 else -1
+                                                        slideInHorizontally(initialOffsetX = { it * offsetSign }, animationSpec = tween(300))
+                                                    }
+                                                    // Detail page → bottom bar: slide in from left
+                                                    targetRoute in bottomBarRoutes && initialRoute !in bottomBarRoutes -> {
+                                                        slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(300))
+                                                    }
+                                                    // Bottom bar → detail page: slide in from right
+                                                    else -> slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(300))
+                                                }
+                                            }
+
+                                            override val exitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
+                                                val targetRoute = targetState.destination.route
+                                                val initialRoute = initialState.destination.route
+
+                                                val targetIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == targetRoute }
+                                                val initialIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == initialRoute }
+
+                                                when {
+                                                    // Bottom bar → bottom bar: slide out opposite direction
+                                                    targetIndex != -1 && initialIndex != -1 -> {
+                                                        val offsetSign = if (targetIndex > initialIndex) -1 else 1
+                                                        slideOutHorizontally(targetOffsetX = { it * offsetSign }, animationSpec = tween(300))
+                                                    }
+                                                    // Bottom bar → detail page: slide out to left
+                                                    initialRoute in bottomBarRoutes && targetRoute !in bottomBarRoutes -> {
+                                                        slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(300))
+                                                    }
+                                                    // Default
+                                                    else -> slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(300))
+                                                }
+                                            }
+
+                                            override val popEnterTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
+                                                val targetRoute = targetState.destination.route
+                                                val initialRoute = initialState.destination.route
+
+                                                val targetIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == targetRoute }
+                                                val initialIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == initialRoute }
+
+                                                when {
+                                                    // Bottom bar → bottom bar pop: mirror of exit
+                                                    targetIndex != -1 && initialIndex != -1 -> {
+                                                        val offsetSign = if (targetIndex > initialIndex) 1 else -1
+                                                        slideInHorizontally(initialOffsetX = { it * offsetSign }, animationSpec = tween(300))
+                                                    }
+                                                    // Returning from detail → bottom bar: slide in from left
+                                                    targetRoute in bottomBarRoutes -> {
+                                                        slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(300))
+                                                    }
+                                                    else -> slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(300))
+                                                }
+                                            }
+
+                                            override val popExitTransition: AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
+                                                val targetRoute = targetState.destination.route
+                                                val initialRoute = initialState.destination.route
+
+                                                val targetIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == targetRoute }
+                                                val initialIndex = BottomBarDestination.entries.indexOfFirst { it.direction.route == initialRoute }
+
+                                                when {
+                                                    // Bottom bar → bottom bar pop
+                                                    targetIndex != -1 && initialIndex != -1 -> {
+                                                        val offsetSign = if (targetIndex > initialIndex) -1 else 1
+                                                        slideOutHorizontally(targetOffsetX = { it * offsetSign }, animationSpec = tween(300))
+                                                    }
+                                                    // Detail page closing: slide out to right
+                                                    initialRoute !in bottomBarRoutes -> {
+                                                        slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(300))
+                                                    }
+                                                    else -> slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(300))
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+
+                                // Floating Bottom Bar as overlay
+                                AnimatedVisibility(
+                                    visible = showBottomBar,
+                                    modifier = Modifier.align(Alignment.BottomCenter),
+                                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                                ) {
+                                    BottomBar(navController, lastValidNavbarSelection)
+                                }
+                            }
                         }
                     }
                 }
@@ -531,7 +585,7 @@ private fun BottomBar(
 ) {
     val navigator = navController.rememberDestinationsNavigator()
     val isManager = Natives.isManager
-    val fullFeatured = isManager && !Natives.requireNewKernel() && rootAvailable()
+    val fullFeatured = Natives.isFullFeatured()
 
     val visibleDestinations = remember(fullFeatured) {
         BottomBarDestination.entries.filter { fullFeatured || !it.rootRequired }

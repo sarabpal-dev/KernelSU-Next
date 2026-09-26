@@ -1020,10 +1020,13 @@ struct selinux_policy *ksu_dup_sepolicy(struct selinux_policy *old_pol)
     if (!old_pol)
         return ERR_PTR(-EINVAL);
 
-    len = old_pol->policydb.len;
+    // Some device policy db seems not marking type itself in type_attr_map_array
+    // policydb_read() adds each type to its own attribute map, so old_pol->policydb.len may be smaller
+    // preserve one ebitmap entry for this condition to avoid trigger -EINVAL
+    len = old_pol->policydb.len + (size_t)old_pol->policydb.p_types.nprim * (sizeof(u32) + sizeof(u64));
     data = vmalloc(len);
     if (!data) {
-        pr_err("alloc policy len %ld\n", len);
+        pr_err("alloc policy buffer len %zu\n", len);
         ret = -ENOMEM;
         goto out_free_data;
     }
@@ -1036,7 +1039,9 @@ struct selinux_policy *ksu_dup_sepolicy(struct selinux_policy *old_pol)
         pr_err("sepolicy: policydb_write: %d\n", ret);
         goto out_free_data;
     }
-
+    len -= fp.len;
+    // https://android.googlesource.com/kernel/common/+/35a7845718734ae638b85b420534cb859498dab6%5E%21
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 18, 0)
     // https://android-review.googlesource.com/c/kernel/common/+/3009995/11/security/selinux/ss/policydb.c
     // fixup config
     // 4*2+8+4
@@ -1044,6 +1049,7 @@ struct selinux_policy *ksu_dup_sepolicy(struct selinux_policy *old_pol)
     if (len >= kConfigOff + sizeof(u32)) {
         u32 *config_ptr = (u32 *)((unsigned long)data + kConfigOff);
         pr_info("old config: %u\n", *config_ptr);
+#ifdef POLICYDB_CONFIG_ANDROID_NETLINK_ROUTE
         if (old_pol->policydb.android_netlink_route) {
             pr_info("adding POLICYDB_CONFIG_ANDROID_NETLINK_ROUTE\n");
             *config_ptr |= POLICYDB_CONFIG_ANDROID_NETLINK_ROUTE;
@@ -1052,9 +1058,10 @@ struct selinux_policy *ksu_dup_sepolicy(struct selinux_policy *old_pol)
             pr_info("adding POLICYDB_CONFIG_ANDROID_NETLINK_GETNEIGH\n");
             *config_ptr |= POLICYDB_CONFIG_ANDROID_NETLINK_GETNEIGH;
         }
+#endif
         pr_info("new config: %u\n", *config_ptr);
     }
-
+#endif
     new_pol = kmemdup(old_pol, sizeof(*old_pol), GFP_KERNEL);
     if (!new_pol) {
         ret = -ENOMEM;
@@ -1072,7 +1079,7 @@ struct selinux_policy *ksu_dup_sepolicy(struct selinux_policy *old_pol)
         pr_err("sepolicy: policydb_read: %d\n", ret);
         goto out_free_policydb;
     }
-    new_pol->policydb.len = old_pol->policydb.len;
+    new_pol->policydb.len = len;
     kvfree(data);
 
     return new_pol;

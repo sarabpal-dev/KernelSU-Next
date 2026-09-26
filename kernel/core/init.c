@@ -88,6 +88,11 @@ module_param(allow_shell, bool, 0);
 bool ksu_no_custom_rc = false;
 module_param_named(norc, ksu_no_custom_rc, bool, 0);
 
+#ifdef MODULE
+bool ksu_bundled = false;
+module_param_named(bundled, ksu_bundled, bool, 0);
+#endif
+
 int __init kernelsu_init(void)
 {
 	int ret;
@@ -157,16 +162,13 @@ int __init kernelsu_init(void)
 	ksu_syscall_hook_init();
 
 	ksu_feature_init();
-
 	ksu_sulog_init();
-
 	ksu_adb_root_init();
-
 	ksu_lsm_hook_init();
-
 	ksu_selinux_hide_init();
 
 	ksu_supercalls_init();
+	ksu_app_profile_init();
 	ksu_reboot_guard_init();
 
 	if (ksu_late_loaded) {

@@ -5,6 +5,7 @@
 #include "policy/feature.h"
 #include "uapi/feature.h"
 #include "klog.h"
+#include "ksu.h"
 #include "runtime/ksud.h"
 #include "infra/seccomp_cache.h"
 #include "ksu_kallsyms.h"

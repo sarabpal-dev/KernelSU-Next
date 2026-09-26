@@ -183,7 +183,12 @@ fun InstallScreen(navigator: DestinationsNavigator) {
                 }
                 .verticalScroll(rememberScrollState())
         ) {
-            SelectInstallMethod(installMethod) { method ->
+            SelectInstallMethod(
+                installMethod,
+                onFlashModulesRequested = { uri ->
+                    navigator.navigate(FlashScreenDestination(FlashIt.FlashModules(listOf(uri))))
+                }
+            ) { method ->
                 installMethod = method
             }
 
@@ -279,7 +284,12 @@ sealed class InstallMethod {
 }
 
 @Composable
-private fun SelectInstallMethod(selectedMethod: InstallMethod?, onSelected: (InstallMethod) -> Unit = {}) {
+private fun SelectInstallMethod(
+    selectedMethod: InstallMethod?,
+    onFlashModulesRequested: (Uri) -> Unit = {},
+    onSelected: (InstallMethod) -> Unit = {}
+) {
+    val context = LocalContext.current
     val rootAvailable = rootAvailable()
     val isAbDevice = produceState(initialValue = false) {
         value = isAbDevice()
@@ -323,8 +333,12 @@ private fun SelectInstallMethod(selectedMethod: InstallMethod?, onSelected: (Ins
     ) {
         if (it.resultCode == Activity.RESULT_OK) {
             it.data?.data?.let { uri ->
-                val option = InstallMethod.AnyKernel(uri)
-                onSelected(option)
+                // auto-detect: a module zip picked here flashes as module(s)
+                if (ZipUtils.isAnyKernel3Zip(context, uri)) {
+                    onSelected(InstallMethod.AnyKernel(uri))
+                } else {
+                    onFlashModulesRequested(uri)
+                }
             }
         }
     }

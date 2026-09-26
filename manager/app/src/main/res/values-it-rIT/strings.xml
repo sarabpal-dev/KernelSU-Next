@@ -288,7 +288,6 @@
   <string name="sulog_entry_description_ioctl_grant_root">Accesso root consentito tramite KernelSU ioctl</string>
   <string name="sulog_entry_title_daemon_restarted">Demone riavviato</string>
   <string name="sulog_entry_title_dropped_events">Eventi scartati</string>
-  <string name="uapi_mismatch">Mancata corrispondenza tra la versione uapi del manager (%1$d) e la versione uapi del driver KernelSU (%2$d).</string>
   <string name="require_manager_version">La versione attualmente installata del manager KernelSU %1$d è troppo vecchia e KernelSU non può funzionare correttamente. Si prega di aggiornare alla versione %2$d o successiva!</string>
   <string name="profile_flags">Segnalazioni</string>
   <string name="profile_flags_desc_no_new_privs">Evitare un\'ulteriore escalation dei privilegi tramite KernelSU nel contesto di questo profilo di root.</string>
@@ -307,4 +306,9 @@
   <string name="sulog_uid">UID %1$s</string>
   <string name="sulog_status_success">Successo</string>
   <string name="sulog_status_exit">Esci %1$d</string>
+  <string name="home_lkm_update_available">È disponibile una versione più recente di LKM. Tocca per aggiornare.</string>
+  <string name="home_lkm_custom">Personalizzato</string>
+  <string name="require_kernel_version_gki">Aggiornamento kernel richiesto</string>
+  <string name="select_language">Seleziona la lingua</string>
+  <string name="export_log_unrooted">Export logs (non-root)</string>
 </resources>
