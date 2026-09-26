@@ -18,6 +18,7 @@ import androidx.core.content.edit
 import android.graphics.drawable.Drawable
 import androidx.lifecycle.ViewModel
 import com.rifsxd.ksunext.IKsuInterface
+import com.rifsxd.ksunext.KernelSUApplication
 import com.rifsxd.ksunext.Natives
 import com.rifsxd.ksunext.ksuApp
 import com.rifsxd.ksunext.ui.KsuService
@@ -30,9 +31,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.parcelize.Parcelize
+import java.io.File
+import java.io.FilterOutputStream
 import java.text.Collator
 import java.util.*
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlin.coroutines.suspendCoroutine
 
 class SuperUserViewModel : ViewModel() {
@@ -163,12 +167,52 @@ class SuperUserViewModel : ViewModel() {
 
         val intent = Intent(ksuApp, KsuService::class.java)
 
-        val task = RootService.bindOrTask(
-            intent,
-            Shell.EXECUTOR,
-            connection,
-        )
-        task?.let { it1 -> Shell.getShell().execTask(it1) }
+        try {
+            // Ensure any existing main.jar is writable or deleted so libsu's FileOutputStream won't fail with EACCES
+            KernelSUApplication.cleanStaleDexFiles(ksuApp)
+
+            val task = RootService.bindOrTask(
+                intent,
+                Shell.EXECUTOR,
+                connection,
+            )
+
+            task?.let { originalTask ->
+                Shell.getShell().execTask { stdin, stdout, stderr ->
+                    val interceptingStdin = object : FilterOutputStream(stdin) {
+                        override fun write(b: ByteArray, off: Int, len: Int) {
+                            val cmd = String(b, off, len, Charsets.UTF_8)
+                            if (cmd.contains("RootServerMain")) {
+                                val deCache = runCatching { ksuApp.createDeviceProtectedStorageContext().cacheDir }.getOrNull()
+                                val jarPath = File(deCache ?: ksuApp.cacheDir, "main.jar").absolutePath
+                                val patchedCmd = "chmod 0444 '$jarPath' 2>/dev/null; $cmd"
+                                val bytes = patchedCmd.toByteArray(Charsets.UTF_8)
+                                out.write(bytes, 0, bytes.size)
+                            } else {
+                                out.write(b, off, len)
+                            }
+                        }
+
+                        override fun write(b: ByteArray) {
+                            write(b, 0, b.size)
+                        }
+                    }
+
+                    // Before running task, ensure main.jar can be written
+                    KernelSUApplication.cleanStaleDexFiles(ksuApp)
+
+                    originalTask.run(interceptingStdin, stdout, stderr)
+
+                    // Also mark read-only from client side
+                    KernelSUApplication.ensureDexFilesReadOnly(ksuApp)
+                }
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "connectKsuService failed", e)
+            if (cont.isActive) {
+                cont.resumeWithException(e)
+            }
+        }
     }
 
     private fun stopKsuService() {
@@ -176,6 +220,8 @@ class SuperUserViewModel : ViewModel() {
         ksuConnection?.let { RootService.unbind(it) }
         ksuConnection = null
         RootService.stop(intent)
+        // Clean up main.jar so nothing stale remains on disk
+        KernelSUApplication.cleanStaleDexFiles(ksuApp)
     }
 
     val fetchMutex = Mutex()
@@ -235,8 +281,8 @@ class SuperUserViewModel : ViewModel() {
                 Log.i(TAG, "load cost: ${SystemClock.elapsedRealtime() - start}")
             } catch (e: Exception) {
                 Log.e(TAG, "fetchAppList failed", e)
-                isRefreshing = false
             } finally {
+                isRefreshing = false
                 withContext(Dispatchers.Main) { stopKsuService() }
             }
         }

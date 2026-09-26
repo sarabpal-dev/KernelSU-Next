@@ -55,6 +55,8 @@ class KernelSUApplication : Application(), ViewModelStoreOwner {
         // Provide working env for rust's temp_dir()
         Os.setenv("TMPDIR", cacheDir.absolutePath, true)
 
+        cleanStaleDexFiles(this)
+
         okhttpClient =
             OkHttpClient.Builder().cache(Cache(File(cacheDir, "okhttp"), 10 * 1024 * 1024))
                 .addInterceptor { block ->
@@ -69,5 +71,52 @@ class KernelSUApplication : Application(), ViewModelStoreOwner {
     override val viewModelStore: ViewModelStore
         get() = appViewModelStore
 
+    companion object {
+        fun cleanStaleDexFiles(context: android.content.Context) {
+            runCatching {
+                val deContext = runCatching { context.createDeviceProtectedStorageContext() }.getOrNull()
+                val targetDirs = listOfNotNull(
+                    context.cacheDir,
+                    context.codeCacheDir,
+                    deContext?.cacheDir,
+                    deContext?.codeCacheDir,
+                    File("/data/user_de/0/${context.packageName}/cache"),
+                    File("/data/user/0/${context.packageName}/cache")
+                )
+                for (dir in targetDirs) {
+                    val mainJar = File(dir, "main.jar")
+                    if (mainJar.exists()) {
+                        mainJar.setWritable(true, false)
+                        runCatching {
+                            Os.chmod(mainJar.absolutePath, 420) // 0644 octal = 420 decimal
+                        }
+                        mainJar.delete()
+                    }
+                }
+            }
+        }
 
+        fun ensureDexFilesReadOnly(context: android.content.Context) {
+            runCatching {
+                val deContext = runCatching { context.createDeviceProtectedStorageContext() }.getOrNull()
+                val targetDirs = listOfNotNull(
+                    context.cacheDir,
+                    context.codeCacheDir,
+                    deContext?.cacheDir,
+                    deContext?.codeCacheDir,
+                    File("/data/user_de/0/${context.packageName}/cache"),
+                    File("/data/user/0/${context.packageName}/cache")
+                )
+                for (dir in targetDirs) {
+                    val mainJar = File(dir, "main.jar")
+                    if (mainJar.exists()) {
+                        mainJar.setReadOnly()
+                        runCatching {
+                            Os.chmod(mainJar.absolutePath, 292) // 0444 octal = 292
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
